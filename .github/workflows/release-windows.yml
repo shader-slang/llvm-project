@@ -46,6 +46,14 @@ jobs:
           
       - name: archive
         id: archive
+        
+        # TODO(JS):
+        # At the moment each archive holds includes and binaries. It could be argued to separate the 
+        # includes that stay the same between archives be saved on its own. This would lead to less space being
+        # required. 
+        #
+        # In that scenario we could have an action for a 'release' which just saved off headers, and then 
+        # not bother for the binary packages. 
         run: |
           echo "achiving files..."
           if ("${{matrix.platform}}" -eq "x64")
@@ -69,7 +77,6 @@ jobs:
           7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/
           7z a "$binArchive" -r include/llvm/
           7z a "$binArchive" -r include/clang/
-          7z a "$binArchive" -r build-${{matrix.platform}}/include
           
       - name: Upload Archive
         uses: softprops/action-gh-release@v1

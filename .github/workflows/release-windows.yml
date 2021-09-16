@@ -20,10 +20,18 @@ jobs:
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: windows-latest
     
+    # On github actions doing 'Debug', 'RelWithDebInfo' results in resource usage > 30Gb
+    # That github actions virtual machine runners 
+    # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners
+    # Runners only have 14Gb SSD, so the build can't complete.
+    
     strategy:
       matrix:
-        configuration: ['Release', 'Debug', 'RelWithDebInfo']
-        platform: ['Win32', 'x64']
+        # Might be useful to have all these combinations but for now don't build on github Actions, so use limited subset
+        # configuration: ['Release', 'Debug', 'RelWithDebInfo']
+        # platform: ['x64', 'Win32' ]
+        configuration: ['Release'] 
+        platform: ['x64'] 
 
     steps:   
       - uses: actions/checkout@v2.3.4

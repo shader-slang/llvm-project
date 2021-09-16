@@ -20,10 +20,18 @@ jobs:
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: windows-latest
     
+    # On github actions doing 'Debug', 'RelWithDebInfo' results in resource usage > 30Gb
+    # That github actions virtual machine runners 
+    # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners
+    # Runners only have 14Gb SSD, so the build can't complete.
+    
     strategy:
       matrix:
-        configuration: ['Release', 'Debug', 'RelWithDebInfo']
-        platform: ['Win32', 'x64']
+        # Might be useful to have all these combinations but for now don't build on github Actions, so use limited subset
+        # configuration: ['Release', 'Debug', 'RelWithDebInfo']
+        # platform: ['x64', 'Win32' ]
+        configuration: ['Release'] 
+        platform: ['x64'] 
 
     steps:   
       - uses: actions/checkout@v2.3.4
@@ -46,6 +54,14 @@ jobs:
           
       - name: archive
         id: archive
+        
+        # TODO(JS):
+        # At the moment each archive holds includes and binaries. It could be argued to separate the 
+        # includes that stay the same between archives be saved on its own. This would lead to less space being
+        # required. 
+        #
+        # In that scenario we could have an action for a 'release' which just saved off headers, and then 
+        # not bother for the binary packages. 
         run: |
           echo "achiving files..."
           if ("${{matrix.platform}}" -eq "x64")
@@ -69,7 +85,6 @@ jobs:
           7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/
           7z a "$binArchive" -r include/llvm/
           7z a "$binArchive" -r include/clang/
-          7z a "$binArchive" -r build-${{matrix.platform}}/include
           
       - name: Upload Archive
         uses: softprops/action-gh-release@v1

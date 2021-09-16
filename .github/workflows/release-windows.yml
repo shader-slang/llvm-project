@@ -1,0 +1,81 @@
+name: Windows Release Build
+
+on:
+  push:
+      # LLVM has official release version tags of the form `llvmorg-12.0.1`
+      #
+      # We want to build based on slang (or some other mechanisms). For now we go with 
+      # a `slang-` prefix, to trigger a 'slang specific' release.
+      #
+      # Sequence of patterns matched against refs/tags
+      tags:
+      - 'slang-*' # Push events to matching slang-*, i.e. slang-llvmorg-13.0.0-rc3
+      
+jobs:
+  build:
+    name: Release Build
+    # The CMake configure and build commands are platform agnostic and should work equally
+    # well on Windows or Mac.  You can convert this to a matrix build if you need
+    # cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        configuration: ['Release', 'Debug', 'RelWithDebInfo']
+        platform: ['Win32', 'x64']
+
+    steps:   
+      - uses: actions/checkout@v2.3.4
+        with:
+          submodules: 'true'
+          fetch-depth: '0'
+
+      - name: Configure CMake
+        # Configure CMake in a 'build'-platform subdirectory.
+        #        
+        # Configured this way because came across information claiming for windows builds have to be in 
+        # different directories when for different platforms.
+        #
+        # TODO(JS): We want to build using static linking, but seems there are problems around that so we try this first.
+        run: cmake -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -DLLVM_ENABLE_PROJECTS="clang"
+
+      - name: Build
+        run: 
+          cmake --build ${{github.workspace}}/build-${{matrix.platform}} --config ${{matrix.configuration}} 
+          
+      - name: archive
+        id: archive
+        run: |
+          echo "achiving files..."
+          if ("${{matrix.platform}}" -eq "x64")
+          {
+            $platformName = "win64"
+          }
+          else
+          {
+            $platformName = "win32"
+          }
+          
+          $tagName = & git describe --tags
+          $llvmVersion = $tagName.TrimStart("slang-")
+          $binArchive = "llvm-$llvmVersion-$platformName-${{matrix.configuration}}.zip"
+
+          echo "name=TEST_BINARY_ARCHIVE::$binArchive"
+          echo "::set-output name=TEST_BINARY_ARCHIVE::$binArchive"
+
+          7z a "$binArchive" README.md
+          7z a "$binArchive" -r build-${{matrix.platform}}/include/
+          7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/
+          7z a "$binArchive" -r include/llvm/
+          7z a "$binArchive" -r include/clang/
+          7z a "$binArchive" -r build-${{matrix.platform}}/include
+          
+      - name: Upload Archive
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.archive.outputs.TEST_BINARY_ARCHIVE }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          

@@ -46,7 +46,7 @@ jobs:
         # different directories when for different platforms.
         #
         # TODO(JS): We want to build using static linking, but seems there are problems around that so we try this first.
-        run: cmake llvm -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -DLLVM_ENABLE_PROJECTS="clang"
+        run: cmake llvm -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM"
 
       - name: Build
         run: 
@@ -82,9 +82,9 @@ jobs:
 
           7z a "$binArchive" README.md
           7z a "$binArchive" -r build-${{matrix.platform}}/include/
+          7z a "$binArchive" -r llvm/include/
+          7z a "$binArchive" -r clang/include/
           7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/
-          7z a "$binArchive" -r include/llvm/
-          7z a "$binArchive" -r include/clang/
           
       - name: Upload Archive
         uses: softprops/action-gh-release@v1

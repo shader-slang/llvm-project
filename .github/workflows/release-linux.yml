@@ -30,7 +30,7 @@ jobs:
         #        
         # Configured this way because came across information claiming for windows builds have to be in 
         # different directories when for different platforms.
-        run: cmake llvm -B ${{github.workspace}}/build -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 
+        run: cmake llvm -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.configuration}} -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 
     
       - name: Build
         run: 
@@ -54,7 +54,7 @@ jobs:
           zip "$BIN_ARCHIVE" -r llvm/include/
           zip "$BIN_ARCHIVE" -r clang/include/
           zip "$BIN_ARCHIVE" -r build/include/
-          zip "$BIN_ARCHIVE" -r build/${{matrix.configuration}}/lib/
+          zip "$BIN_ARCHIVE" build/lib/*.a
           zip "$BIN_ARCHIVE" -r build/tools/clang/include/clang/
 
           echo "name=BINARY_ARCHIVE::$BIN_ARCHIVE"

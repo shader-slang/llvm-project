@@ -1,0 +1,70 @@
+name: Linux Release Build
+
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - 'slang-*' # Push events to matching slang-*, i.e. slang-llvmorg-13.0.0-rc3
+    
+jobs:
+  build:
+    name: Release Build
+    # The CMake configure and build commands are platform agnostic and should work equally
+    # well on Windows or Mac.  You can convert this to a matrix build if you need
+    # cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        configuration: ['Release', 'Debug']
+        
+    steps:   
+      - uses: actions/checkout@v2.3.4
+        with:
+          submodules: 'true'
+          fetch-depth: '0'
+
+      - name: Configure CMake
+        # Configure CMake in a 'build'-platform subdirectory.
+        #        
+        # Configured this way because came across information claiming for windows builds have to be in 
+        # different directories when for different platforms.
+        run: cmake llvm -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.configuration}} -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 
+    
+      - name: Build
+        run: 
+          cmake --build ${{github.workspace}}/build --config ${{matrix.configuration}} 
+          
+      - name: archive
+        id: archive
+        run: |
+          echo "achiving files..."
+          
+          PLATFORM_NAME="linux-x86_64"
+          TAG_NAME=`git describe --tags`
+          LLVM_VERSION=${TAG_NAME#slang-}
+          
+          echo "tag:$TAG_NAME"
+          echo "llvm-version:$LLVM_VERSION"
+          
+          BIN_ARCHIVE="llvm-$TAG_NAME-$PLATFORM_NAME-${{matrix.configuration}}.zip"
+
+          zip "$BIN_ARCHIVE" README.md
+          zip "$BIN_ARCHIVE" -r llvm/include/
+          zip "$BIN_ARCHIVE" -r clang/include/
+          zip "$BIN_ARCHIVE" -r build/include/
+          zip "$BIN_ARCHIVE" build/lib/*.a
+          zip "$BIN_ARCHIVE" -r build/tools/clang/include/clang/
+
+          echo "name=BINARY_ARCHIVE::$BIN_ARCHIVE"
+          echo "::set-output name=BINARY_ARCHIVE::$BIN_ARCHIVE"
+
+      - name: Upload Archive
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.archive.outputs.BINARY_ARCHIVE }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          

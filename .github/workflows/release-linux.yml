@@ -17,7 +17,9 @@ jobs:
     
     strategy:
       matrix:
-        configuration: ['Release', 'Debug']
+        # Might be useful to have all these combinations but for now don't build on github Actions, so use limited to a subset.
+        # configuration: ['Release', 'Debug', 'RelWithDebInfo']
+        configuration: ['Release']
         
     steps:   
       - uses: actions/checkout@v2.3.4

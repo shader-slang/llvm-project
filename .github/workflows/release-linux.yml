@@ -45,7 +45,7 @@ jobs:
           
           PLATFORM_NAME="linux-x86_64"
           TAG_NAME=`git describe --tags`
-          LLVM_VERSION=${TAG_NAME#slang-}
+          LLVM_VERSION=${TAG_NAME#"slang-"}
           
           echo "tag:$TAG_NAME"
           echo "llvm-version:$LLVM_VERSION"

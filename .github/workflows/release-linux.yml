@@ -32,8 +32,11 @@ jobs:
         #        
         # Configured this way because came across information claiming for windows builds have to be in 
         # different directories when for different platforms.
-        run: cmake llvm -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.configuration}} -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 
-    
+        run: cmake llvm -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.configuration}} -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 
+      
+        # Might be desirable to remove the need for linkage with tinfo      
+        # -DLLVM_ENABLE_TERMINFO=0
+      
       - name: Build
         run: 
           cmake --build ${{github.workspace}}/build --config ${{matrix.configuration}} 

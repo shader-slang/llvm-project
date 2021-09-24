@@ -53,7 +53,7 @@ jobs:
           echo "tag:$TAG_NAME"
           echo "llvm-version:$LLVM_VERSION"
           
-          BIN_ARCHIVE="llvm-$TAG_NAME-$PLATFORM_NAME-${{matrix.configuration}}.zip"
+          BIN_ARCHIVE="llvm-$LLVM_VERSION-$PLATFORM_NAME-${{matrix.configuration}}.zip"
 
           zip "$BIN_ARCHIVE" README.md
           zip "$BIN_ARCHIVE" -r llvm/include/

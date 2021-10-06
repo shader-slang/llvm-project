@@ -31,7 +31,7 @@ jobs:
         # configuration: ['Release', 'Debug', 'RelWithDebInfo']
         # platform: ['x64', 'Win32' ]
         configuration: ['Release'] 
-        platform: ['x64'] 
+        platform: ['Win32', 'x64', 'aarch64'] 
 
     steps:   
       - uses: actions/checkout@v2.3.4
@@ -45,7 +45,6 @@ jobs:
         # Configured this way because came across information claiming for windows builds have to be in 
         # different directories when for different platforms.
         #
-        # TODO(JS): We want to build using static linking, but seems there are problems around that so we try this first.
         # TODO(JS): AARCH64 target is only available as 'experimental'
         # TODO(JS): We really need to select -Thost based on what we are on, really we only need for 64bit windows.
         run: cmake llvm -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -Thost=x64 -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 -DLLVM_USE_CRT_DEBUG=MTd -DLLVM_USE_CRT_MINSIZEREL=MT -DLLVM_USE_CRT_RELEASE=MT -DLLVM_USE_CRT_RELWITHDEBINFO=MT
@@ -69,6 +68,10 @@ jobs:
           if ("${{matrix.platform}}" -eq "x64")
           {
             $platformName = "win64"
+          }
+          elseif ("${{matrix.platform}}" -eq "aarch64")
+          {
+            $platformName = "win-aarch64"
           }
           else
           {

@@ -29,9 +29,10 @@ jobs:
       matrix:
         # Might be useful to have all these combinations but for now don't build on github Actions, so use limited subset
         # configuration: ['Release', 'Debug', 'RelWithDebInfo']
-        # platform: ['x64', 'Win32' ]
+        # TODO(JS): It looks like CMake project is not set for building `aarch64` on Visual Studio, as breaks during CMake project stage.
+        # platform: ['x64', 'Win32', 'aarch64' ]
         configuration: ['Release'] 
-        platform: ['Win32', 'x64', 'aarch64'] 
+        platform: ['Win32', 'x64'] 
 
     steps:   
       - uses: actions/checkout@v2.3.4
@@ -47,8 +48,7 @@ jobs:
         #
         # TODO(JS): AARCH64 target is only available as 'experimental'
         # TODO(JS): We really need to select -Thost based on what we are on, really we only need for 64bit windows.
-        # Lets try removing -Thost=64 to see if thats confusing aarch64 build -Thost=x64 
-        run: cmake llvm -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 -DLLVM_USE_CRT_DEBUG=MTd -DLLVM_USE_CRT_MINSIZEREL=MT -DLLVM_USE_CRT_RELEASE=MT -DLLVM_USE_CRT_RELWITHDEBINFO=MT
+        run: cmake llvm -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -Thost=x64 -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 -DLLVM_USE_CRT_DEBUG=MTd -DLLVM_USE_CRT_MINSIZEREL=MT -DLLVM_USE_CRT_RELEASE=MT -DLLVM_USE_CRT_RELWITHDEBINFO=MT
 
       - name: Build
         run: 

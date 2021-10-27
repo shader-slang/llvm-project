@@ -2,14 +2,14 @@ name: Windows Release Build
 
 on:
   push:
-      # LLVM has official release version tags of the form `llvmorg-12.0.1`
-      #
-      # We want to build based on slang (or some other mechanisms). For now we go with 
-      # a `slang-` prefix, to trigger a 'slang specific' release.
-      #
-      # Sequence of patterns matched against refs/tags
-      tags:
-      - 'slang-*' # Push events to matching slang-*, i.e. slang-llvmorg-13.0.0-rc3
+    # LLVM has official release version tags of the form `llvmorg-12.0.1`
+    #
+    # We want to build based on slang (or some other mechanisms). For now we go with 
+    # a `slang-` prefix, to trigger a 'slang specific' release.
+    #
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - 'slang-*' # Push events to matching slang-*, i.e. slang-llvmorg-13.0.0-rc3
       
 jobs:
   build:

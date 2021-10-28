@@ -22,12 +22,19 @@ jobs:
         # Might be useful to have all these combinations but for now don't build on github Actions, so use limited to a subset.
         # configuration: ['Release', 'Debug', 'RelWithDebInfo']
         configuration: ['Release']
+        platform: ['x86', 'x64'] 
         
     steps:   
       - uses: actions/checkout@v2.3.4
         with:
           submodules: 'true'
           fetch-depth: '0'
+
+      - name: install multi-lib
+        run: |
+          if [[ "${{matrix.platform}}" == "x86" ]]; then
+            sudo apt-get install gcc-multilib g++-multilib
+          fi
 
       - name: Configure CMake
         # Configure CMake in a 'build'-platform subdirectory.
@@ -36,7 +43,14 @@ jobs:
         # different directories when for different platforms.
         #
         # We may want to build with LLVM_BUILD_TOOLS=1 such that we get llvm-config, so we can get the library link order.
-        run: cmake llvm -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.configuration}} -DCMAKE_CXX_VISIBILITY_PRESET="hidden" -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=1 -DLLVM_INCLUDE_TESTS=0 
+        run: |
+          if [[ "${{matrix.platform}}" == "x86" ]]; then
+            TARGET_OPTIONS="-DLLVM_BUILD_32_BITS=1"
+          else
+            TARGET_OPTIONS=""
+          fi
+          
+          cmake llvm -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.configuration}} -DCMAKE_CXX_VISIBILITY_PRESET="hidden" -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=1 -DLLVM_INCLUDE_TESTS=0 ${TARGET_OPTIONS}
       
         # Might be desirable to remove the need for linkage with tinfo      
         # -DLLVM_ENABLE_TERMINFO=0
@@ -50,7 +64,12 @@ jobs:
         run: |
           echo "achiving files..."
           
-          PLATFORM_NAME="linux-x86_64"
+          if [[ "${{matrix.platform}}" == "x86" ]]; then
+            PLATFORM_NAME="linux-x86"
+          else
+            PLATFORM_NAME="linux-x86_64"
+          fi
+          
           TAG_NAME=`git describe --tags`
           LLVM_VERSION=${TAG_NAME#"slang-"}
           

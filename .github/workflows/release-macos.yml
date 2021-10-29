@@ -62,6 +62,8 @@ jobs:
           zip "$BIN_ARCHIVE" build/lib/*.a
           zip "$BIN_ARCHIVE" -r build/tools/clang/include/clang/
 
+          zip "$BIN_ARCHIVE" -r build/tools/clang/tools/
+
           echo "name=BINARY_ARCHIVE::$BIN_ARCHIVE"
           echo "::set-output name=BINARY_ARCHIVE::$BIN_ARCHIVE"
 

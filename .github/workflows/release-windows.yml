@@ -89,10 +89,12 @@ jobs:
           7z a "$binArchive" README.md
           7z a "$binArchive" -r llvm/include/
           7z a "$binArchive" -r clang/include/
+          
           7z a "$binArchive" -r build-${{matrix.platform}}/include/
-          7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/lib/
           7z a "$binArchive" -r build-${{matrix.platform}}/tools/clang/include/clang/
-          7z a "$binArchive" build-${{matrix.platform}}/bin/llvm-config.exe
+          
+          7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/lib/
+          7z a "$binArchive"    build-${{matrix.platform}}/${{matrix.configuration}}/bin/llvm-config.exe
           
       - name: Upload Archive
         uses: softprops/action-gh-release@v1

@@ -20,9 +20,11 @@ jobs:
     strategy:
       matrix:
         # Might be useful to have all these combinations but for now don't build on github Actions, so use limited to a subset.
+        # x86 doesn't work because of 
+        # /usr/lib/x86_64-linux-gnu/libz.so: error adding symbols: File in wrong format
         # configuration: ['Release', 'Debug', 'RelWithDebInfo']
         configuration: ['Release']
-        platform: ['x86', 'x64'] 
+        platform: ['x64'] #'x86'
         
     steps:   
       - uses: actions/checkout@v2.3.4

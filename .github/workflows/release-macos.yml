@@ -59,11 +59,9 @@ jobs:
           zip "$BIN_ARCHIVE" -r llvm/include/
           zip "$BIN_ARCHIVE" -r clang/include/
           zip "$BIN_ARCHIVE" -r build/include/
-          zip "$BIN_ARCHIVE" build/lib/*.a
+          zip "$BIN_ARCHIVE"    build/lib/*.a
           zip "$BIN_ARCHIVE" -r build/tools/clang/include/clang/
-          zip "$BIN_ARCHIVE" build/bin/llvm-config
-
-          zip "$BIN_ARCHIVE" -r build/tools/clang/tools/
+          zip "$BIN_ARCHIVE"    build/bin/llvm-config
 
           echo "name=BINARY_ARCHIVE::$BIN_ARCHIVE"
           echo "::set-output name=BINARY_ARCHIVE::$BIN_ARCHIVE"

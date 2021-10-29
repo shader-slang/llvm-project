@@ -2,14 +2,14 @@ name: Windows Release Build
 
 on:
   push:
-      # LLVM has official release version tags of the form `llvmorg-12.0.1`
-      #
-      # We want to build based on slang (or some other mechanisms). For now we go with 
-      # a `slang-` prefix, to trigger a 'slang specific' release.
-      #
-      # Sequence of patterns matched against refs/tags
-      tags:
-      - 'slang-*' # Push events to matching slang-*, i.e. slang-llvmorg-13.0.0-rc3
+    # LLVM has official release version tags of the form `llvmorg-12.0.1`
+    #
+    # We want to build based on slang (or some other mechanisms). For now we go with 
+    # a `slang-` prefix, to trigger a 'slang specific' release.
+    #
+    # Sequence of patterns matched against refs/tags
+    tags:
+    - 'slang-*' # Push events to matching slang-*, i.e. slang-llvmorg-13.0.0-rc3
       
 jobs:
   build:
@@ -48,7 +48,7 @@ jobs:
         #
         # TODO(JS): AARCH64 target is only available as 'experimental'
         # TODO(JS): We really need to select -Thost based on what we are on, really we only need for 64bit windows.
-        run: cmake llvm -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -Thost=x64 -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=0 -DLLVM_INCLUDE_TESTS=0 -DLLVM_USE_CRT_DEBUG=MTd -DLLVM_USE_CRT_MINSIZEREL=MT -DLLVM_USE_CRT_RELEASE=MT -DLLVM_USE_CRT_RELWITHDEBINFO=MT
+        run: cmake llvm -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -Thost=x64 -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=1 -DLLVM_INCLUDE_TESTS=0 -DLLVM_USE_CRT_DEBUG=MTd -DLLVM_USE_CRT_MINSIZEREL=MT -DLLVM_USE_CRT_RELEASE=MT -DLLVM_USE_CRT_RELWITHDEBINFO=MT
 
       - name: Build
         run: 
@@ -89,9 +89,12 @@ jobs:
           7z a "$binArchive" README.md
           7z a "$binArchive" -r llvm/include/
           7z a "$binArchive" -r clang/include/
+          
           7z a "$binArchive" -r build-${{matrix.platform}}/include/
-          7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/lib/
           7z a "$binArchive" -r build-${{matrix.platform}}/tools/clang/include/clang/
+          
+          7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/lib/
+          7z a "$binArchive"    build-${{matrix.platform}}/${{matrix.configuration}}/bin/llvm-config.exe
           
       - name: Upload Archive
         uses: softprops/action-gh-release@v1

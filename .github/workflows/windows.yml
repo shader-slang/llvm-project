@@ -66,20 +66,19 @@ jobs:
           echo "achiving files..."
           if ("${{matrix.platform}}" -eq "x64")
           {
-            $platformName = "win64"
+            $PLATFORM_NAME = "win64"
           }
           elseif ("${{matrix.platform}}" -eq "aarch64")
           {
-            $platformName = "win-aarch64"
+            $PLATFORM_NAME = "win-aarch64"
           }
           else
           {
-            $platformName = "win32"
+            $PLATFORM_NAME = "win32"
           }
           
-          $tagName = & git describe --tags
-          $llvmVersion = $tagName.TrimStart("slang-")
-          $binArchive = "llvm-$llvmVersion-$platformName-${{matrix.configuration}}.zip"
+          LLVM_VERSION=`git log --pretty=format:'%h' -n 1`
+          $binArchive = "llvm-$LLVM_VERSION-$PLATFORM_NAME-${{matrix.configuration}}.zip"
 
           echo "name=BINARY_ARCHIVE::$binArchive"
           echo "::set-output name=BINARY_ARCHIVE::$binArchive"

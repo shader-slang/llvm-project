@@ -13,7 +13,9 @@ jobs:
     # well on Windows or Mac.  You can convert this to a matrix build if you need
     # cross-platform coverage.
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    runs-on: windows-latest
+    # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners
+    # We use windows-2019 so we have Visual Studio 2019
+    runs-on: windows-2019
     
     # On github actions doing 'Debug', 'RelWithDebInfo' results in resource usage > 30Gb
     # That github actions virtual machine runners 
@@ -43,11 +45,8 @@ jobs:
         #
         # TODO(JS): AARCH64 target is only available as 'experimental'
         # TODO(JS): We really need to select -Thost based on what we are on, really we only need for 64bit windows.
-        #
-        # Generators for cmake:
-        # https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html#command-line-build-tool-generators
         
-        run: cmake llvm -G "Visual Studio 16 2019" -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -Thost=x64 -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=1 -DLLVM_INCLUDE_TESTS=0 -DLLVM_USE_CRT_DEBUG=MTd -DLLVM_USE_CRT_MINSIZEREL=MT -DLLVM_USE_CRT_RELEASE=MT -DLLVM_USE_CRT_RELWITHDEBINFO=MT
+        run: cmake llvm -B ${{github.workspace}}/build-${{matrix.platform}} -A ${{matrix.platform}} -Thost=x64 -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=1 -DLLVM_INCLUDE_TESTS=0 -DLLVM_USE_CRT_DEBUG=MTd -DLLVM_USE_CRT_MINSIZEREL=MT -DLLVM_USE_CRT_RELEASE=MT -DLLVM_USE_CRT_RELWITHDEBINFO=MT
 
       - name: Build
         run: 

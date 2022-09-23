@@ -1,16 +1,11 @@
-name: Windows Release Build
+name: Windows CI Build
 
 on:
   push:
-    # LLVM has official release version tags of the form `llvmorg-12.0.1`
-    #
-    # We want to build based on slang (or some other mechanisms). For now we go with 
-    # a `slang-` prefix, to trigger a 'slang specific' release.
-    #
-    # Sequence of patterns matched against refs/tags
-    tags:
-    - 'slang-*' # Push events to matching slang-*, i.e. slang-llvmorg-13.0.0-rc3
-      
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+          
 jobs:
   build:
     name: Release Build
@@ -48,6 +43,7 @@ jobs:
         #
         # TODO(JS): AARCH64 target is only available as 'experimental'
         # TODO(JS): We really need to select -Thost based on what we are on, really we only need for 64bit windows.
+        #
         # Generators for cmake:
         # https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html#command-line-build-tool-generators
         
@@ -86,8 +82,8 @@ jobs:
           $llvmVersion = $tagName.TrimStart("slang-")
           $binArchive = "llvm-$llvmVersion-$platformName-${{matrix.configuration}}.zip"
 
-          echo "name=TEST_BINARY_ARCHIVE::$binArchive"
-          echo "::set-output name=TEST_BINARY_ARCHIVE::$binArchive"
+          echo "name=BINARY_ARCHIVE::$binArchive"
+          echo "::set-output name=BINARY_ARCHIVE::$binArchive"
 
           7z a "$binArchive" README.md
           7z a "$binArchive" -r llvm/include/
@@ -99,11 +95,9 @@ jobs:
           7z a "$binArchive" -r build-${{matrix.platform}}/${{matrix.configuration}}/lib/
           7z a "$binArchive"    build-${{matrix.platform}}/${{matrix.configuration}}/bin/llvm-config.exe
           
-      - name: Upload Archive
-        uses: softprops/action-gh-release@v1
+      - uses: actions/upload-artifact@v3
         with:
-          files: |
-            ${{ steps.archive.outputs.TEST_BINARY_ARCHIVE }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: llvm-build-${{matrix.configuration}}-${{matrix.platform}}
+          path: |
+            ${{ steps.archive.outputs.BINARY_ARCHIVE }}    
           

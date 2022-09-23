@@ -1,10 +1,10 @@
-name: Linux Release Build
+name: Linux Build CI
 
 on:
   push:
-    # Sequence of patterns matched against refs/tags
-    tags:
-    - 'slang-*' # Push events to matching slang-*, i.e. slang-llvmorg-13.0.0-rc3
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
     
 jobs:
   build:
@@ -70,11 +70,7 @@ jobs:
             PLATFORM_NAME="linux-x86_64"
           fi
           
-          TAG_NAME=`git describe --tags`
-          LLVM_VERSION=${TAG_NAME#"slang-"}
-          
-          echo "tag:$TAG_NAME"
-          echo "llvm-version:$LLVM_VERSION"
+          LLVM_VERSION=`git log --pretty=format:'%h' -n 1`
           
           BIN_ARCHIVE="llvm-$LLVM_VERSION-$PLATFORM_NAME-${{matrix.configuration}}.zip"
 
@@ -89,11 +85,10 @@ jobs:
           echo "name=BINARY_ARCHIVE::$BIN_ARCHIVE"
           echo "::set-output name=BINARY_ARCHIVE::$BIN_ARCHIVE"
 
-      - name: Upload Archive
-        uses: softprops/action-gh-release@v1
+      - uses: actions/upload-artifact@v3
         with:
-          files: |
+          name: llvm-build-${{matrix.configuration}}-${{matrix.platform}}
+          path: |
             ${{ steps.archive.outputs.BINARY_ARCHIVE }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
+      

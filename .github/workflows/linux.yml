@@ -14,7 +14,8 @@ jobs:
     # cross-platform coverage.
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     #runs-on: ubuntu-latest
-    # Try 18.04 assume binaries will work on 20.04 + 
+    # Try 18.04 assume binaries will work on 20.04 
+    # (To work on stock 20.04, requires tinfo library is not used)
     runs-on: ubuntu-18.04
     
     strategy:
@@ -86,7 +87,7 @@ jobs:
 
       - uses: actions/upload-artifact@v3
         with:
-          name: slang-build-${{matrix.configuration}}-${{matrix.platform}}-${{matrix.compiler}}
+          name: llvm-build-${{matrix.configuration}}-${{matrix.platform}}
           path: |
             ${{ steps.archive.outputs.BINARY_ARCHIVE }}
           

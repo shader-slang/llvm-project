@@ -13,10 +13,7 @@ jobs:
     # well on Windows or Mac.  You can convert this to a matrix build if you need
     # cross-platform coverage.
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    #runs-on: ubuntu-latest
-    # Try 18.04 assume binaries will work on 20.04 
-    # (To work on stock 20.04, requires tinfo library is not used)
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     
     strategy:
       matrix:
@@ -33,31 +30,35 @@ jobs:
           submodules: 'true'
           fetch-depth: '0'
 
-      - name: install multi-lib
+      - name: build
         run: |
-          if [[ "${{matrix.platform}}" == "x86" ]]; then
-            sudo apt-get install gcc-multilib g++-multilib
-          fi
+          sudo docker run -t --rm -w /io -v `pwd`:/io phusion/holy-build-box-64:latest /hbb_exe/activate-exec bash /io/build-hbb-linux.sh ${{matrix.platform}} ${{matrix.configuration}}
+         
+#      - name: install multi-lib
+#        run: |
+#          if [[ "${{matrix.platform}}" == "x86" ]]; then
+#            sudo apt-get install gcc-multilib g++-multilib
+#          fi
 
-      - name: Configure CMake
-        # Configure CMake in a 'build'-platform subdirectory.
-        #        
-        # Configured this way because came across information claiming for windows builds have to be in 
-        # different directories when for different platforms.
-        #
-        # We may want to build with LLVM_BUILD_TOOLS=1 such that we get llvm-config, so we can get the library link order.
-        run: |
-          if [[ "${{matrix.platform}}" == "x86" ]]; then
-            TARGET_OPTIONS="-DLLVM_BUILD_32_BITS=1"
-          else
-            TARGET_OPTIONS=""
-          fi
-          
-          cmake llvm -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.configuration}} -DCMAKE_CXX_VISIBILITY_PRESET="hidden" -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=1 -DLLVM_INCLUDE_TESTS=0 -DLLVM_ENABLE_TERMINFO=0 ${TARGET_OPTIONS}
-      
-      - name: Build
-        run: 
-          cmake --build ${{github.workspace}}/build --config ${{matrix.configuration}} -j`nproc`
+#      - name: Configure CMake
+#        # Configure CMake in a 'build'-platform subdirectory.
+#        #        
+#        # Configured this way because came across information claiming for windows builds have to be in 
+#        # different directories when for different platforms.
+#        #
+#        # We may want to build with LLVM_BUILD_TOOLS=1 such that we get llvm-config, so we can get the library link order.
+#        run: |
+#          if [[ "${{matrix.platform}}" == "x86" ]]; then
+#            TARGET_OPTIONS="-DLLVM_BUILD_32_BITS=1"
+#          else
+#            TARGET_OPTIONS=""
+#          fi
+#          
+#          cmake llvm -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{matrix.configuration}} -DCMAKE_CXX_VISIBILITY_PRESET="hidden" -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="X86;ARM" -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="AArch64" -DCLANG_BUILD_TOOLS=0 -DCLANG_ENABLE_STATIC_ANALYZER=0 -DCLANG_ENABLE_ARCMT=0 -DCLANG_INCLUDE_DOCS=0 -DCLANG_INCLUDE_TESTS=0 -DLLVM_BUILD_LLVM_C_DYLIB=0 -DLLVM_INCLUDE_BENCHMARKS=0 -DLLVM_INCLUDE_DOCS=0 -DLLVM_INCLUDE_EXAMPLES=0 -DLLVM_BUILD_TOOLS=1 -DLLVM_INCLUDE_TESTS=0 -DLLVM_ENABLE_TERMINFO=0 ${TARGET_OPTIONS}
+#      
+#      - name: Build
+#        run: 
+#          cmake --build ${{github.workspace}}/build --config ${{matrix.configuration}} -j`nproc`
           
       - name: archive
         id: archive

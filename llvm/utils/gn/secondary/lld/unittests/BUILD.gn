@@ -1,7 +1,7 @@
 group("unittests") {
   deps = [
-    "DriverTests",
-    "MachOTests:MachOOldTests",
+    "AsLibAll:LLDAsLibAllTests",
+    "AsLibELF:LLDAsLibELFTests",
   ]
   testonly = true
 }

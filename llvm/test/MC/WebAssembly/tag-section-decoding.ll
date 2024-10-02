@@ -7,7 +7,7 @@
 
 target triple = "wasm32-unknown-unknown"
 
-declare void @llvm.wasm.throw(i32, i8*)
+declare void @llvm.wasm.throw(i32, ptr)
 
 define i32 @dummy0() {
 entry:
@@ -329,8 +329,8 @@ entry:
   ret i32 0
 }
 
-define i32 @test_throw(i8* %p) {
-  call void @llvm.wasm.throw(i32 0, i8* %p)
+define i32 @test_throw(ptr %p) {
+  call void @llvm.wasm.throw(i32 0, ptr %p)
   ret i32 0
 }
 
@@ -339,7 +339,4 @@ define i32 @test_throw(i8* %p) {
 ; number with which its LEB128 and ULEB128 encodings are different, because its
 ; 7th least significant bit is not 0.
 ; CHECK:      - Type:            TAG
-; CHECK-NEXT:   Tags:
-; CHECK-NEXT:     - Index:           0
-; CHECK-NEXT:       Attribute:       0
-; CHECK-NEXT:       SigIndex:        64
+; CHECK-NEXT:    TagTypes:        [ 64 ]

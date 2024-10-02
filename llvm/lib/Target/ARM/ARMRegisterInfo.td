@@ -211,6 +211,8 @@ def FPCXTS  : ARMReg<15, "fpcxts">;
 
 def ZR  : ARMReg<15, "zr">,  DwarfRegNum<[15]>;
 
+def RA_AUTH_CODE : ARMReg<12, "ra_auth_code">, DwarfRegNum<[143]>;
+
 // Register classes.
 //
 // pc  == Program Counter
@@ -275,6 +277,16 @@ def GPRwithAPSR : RegisterClass<"ARM", [i32], 32, (add (sub GPR, PC), APSR_NZCV)
       return 1 + MF.getSubtarget<ARMSubtarget>().isThumb1Only();
   }];
   let DiagnosticString = "operand must be a register in range [r0, r14] or apsr_nzcv";
+}
+
+// GPRs without the SP register. Used for BXAUT and AUTG
+def GPRnosp : RegisterClass<"ARM", [i32], 32, (add (sequence "R%u", 0, 12), LR, PC)> {
+  let AltOrders = [(add LR, GPRnosp), (trunc GPRnosp, 8),
+                   (add (trunc GPRnosp, 8), R12, LR, (shl GPRnosp, 8))];
+  let AltOrderSelect = [{
+      return MF.getSubtarget<ARMSubtarget>().getGPRAllocationOrder(MF);
+  }];
+  let DiagnosticString = "operand must be a register in range [r0, r12] or LR or PC";
 }
 
 // GPRs without the PC and SP registers but with APSR. Used by CLRM instruction.
@@ -361,6 +373,16 @@ def tcGPR : RegisterClass<"ARM", [i32], 32, (add R0, R1, R2, R3, R12)> {
   }];
 }
 
+// Some pointer authentication instructions require the use of R12. When return
+// address signing is enabled, authentication of the caller's return address
+// must be performed before a tail call is made. Therefore, indirect tail call
+// jump cannot be from R12.
+// FIXME: All PACBTI instruction currently implemented in the compiler
+// implicitly use R12. When instructions that allow PAC to be placed in a
+// specific register are implemented the restriction needs to be updated to
+// make sure that PACBTI signature and indirect tail call both use a different register.
+def tcGPRnotr12 : RegisterClass<"ARM", [i32], 32, (add R0, R1, R2, R3)>;
+
 def tGPROdd : RegisterClass<"ARM", [i32], 32, (add R1, R3, R5, R7, R9, R11)> {
   let AltOrders = [(and tGPROdd, tGPR)];
   let AltOrderSelect = [{
@@ -385,7 +407,7 @@ def CCR : RegisterClass<"ARM", [i32], 32, (add CPSR)> {
 }
 
 // MVE Condition code register.
-def VCCR : RegisterClass<"ARM", [i32, v16i1, v8i1, v4i1], 32, (add VPR)> {
+def VCCR : RegisterClass<"ARM", [i32, v16i1, v8i1, v4i1, v2i1], 32, (add VPR)> {
 //  let CopyCost = -1;  // Don't allow copying of status registers.
 }
 

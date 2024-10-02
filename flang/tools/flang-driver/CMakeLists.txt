@@ -8,6 +8,7 @@ set( LLVM_LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
   Option
   Support
+  TargetParser
 )
 
 add_flang_tool(flang-new
@@ -34,4 +35,4 @@ if(FLANG_PLUGIN_SUPPORT)
   export_executable_symbols_for_plugins(flang-new)
 endif()
 
-install(TARGETS flang-new DESTINATION bin)
+install(TARGETS flang-new DESTINATION "${CMAKE_INSTALL_BINDIR}")

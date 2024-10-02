@@ -20,13 +20,17 @@ using namespace llvm::ELF;
 using namespace lld;
 using namespace lld::elf;
 
+// Undefine the macro predefined by GCC powerpc32.
+#undef PPC
+
 namespace {
 class PPC final : public TargetInfo {
 public:
-  PPC();
+  PPC(Ctx &);
   RelExpr getRelExpr(RelType type, const Symbol &s,
                      const uint8_t *loc) const override;
   RelType getDynRel(RelType type) const override;
+  int64_t getImplicitAddend(const uint8_t *buf, RelType type) const override;
   void writeGotHeader(uint8_t *buf) const override;
   void writePltHeader(uint8_t *buf) const override {
     llvm_unreachable("should call writePPC32GlinkSection() instead");
@@ -47,14 +51,13 @@ public:
                 uint64_t val) const override;
   RelExpr adjustTlsExpr(RelType type, RelExpr expr) const override;
   int getTlsGdRelaxSkip(RelType type) const override;
-  void relaxTlsGdToIe(uint8_t *loc, const Relocation &rel,
-                      uint64_t val) const override;
-  void relaxTlsGdToLe(uint8_t *loc, const Relocation &rel,
-                      uint64_t val) const override;
-  void relaxTlsLdToLe(uint8_t *loc, const Relocation &rel,
-                      uint64_t val) const override;
-  void relaxTlsIeToLe(uint8_t *loc, const Relocation &rel,
-                      uint64_t val) const override;
+  void relocateAlloc(InputSectionBase &sec, uint8_t *buf) const override;
+
+private:
+  void relaxTlsGdToIe(uint8_t *loc, const Relocation &rel, uint64_t val) const;
+  void relaxTlsGdToLe(uint8_t *loc, const Relocation &rel, uint64_t val) const;
+  void relaxTlsLdToLe(uint8_t *loc, const Relocation &rel, uint64_t val) const;
+  void relaxTlsIeToLe(uint8_t *loc, const Relocation &rel, uint64_t val) const;
 };
 } // namespace
 
@@ -62,20 +65,21 @@ static uint16_t lo(uint32_t v) { return v; }
 static uint16_t ha(uint32_t v) { return (v + 0x8000) >> 16; }
 
 static uint32_t readFromHalf16(const uint8_t *loc) {
-  return read32(config->isLE ? loc : loc - 2);
+  return read32(ctx.arg.isLE ? loc : loc - 2);
 }
 
 static void writeFromHalf16(uint8_t *loc, uint32_t insn) {
-  write32(config->isLE ? loc : loc - 2, insn);
+  write32(ctx.arg.isLE ? loc : loc - 2, insn);
 }
 
 void elf::writePPC32GlinkSection(uint8_t *buf, size_t numEntries) {
   // Create canonical PLT entries for non-PIE code. Compilers don't generate
   // non-GOT-non-PLT relocations referencing external functions for -fpie/-fPIE.
-  uint32_t glink = in.plt->getVA(); // VA of .glink
-  if (!config->isPic) {
-    for (const Symbol *sym : cast<PPC32GlinkSection>(in.plt)->canonical_plts) {
-      writePPC32PltCallStub(buf, sym->getGotPltVA(), nullptr, 0);
+  uint32_t glink = ctx.in.plt->getVA(); // VA of .glink
+  if (!ctx.arg.isPic) {
+    for (const Symbol *sym :
+         cast<PPC32GlinkSection>(*ctx.in.plt).canonical_plts) {
+      writePPC32PltCallStub(ctx, buf, sym->getGotPltVA(), nullptr, 0);
       buf += 16;
       glink += 16;
     }
@@ -98,10 +102,10 @@ void elf::writePPC32GlinkSection(uint8_t *buf, size_t numEntries) {
   // Then write PLTresolve(), which has two forms: PIC and non-PIC. PLTresolve()
   // computes the PLT index (by computing the distance from the landing b to
   // itself) and calls _dl_runtime_resolve() (in glibc).
-  uint32_t got = in.got->getVA();
+  uint32_t got = ctx.in.got->getVA();
   const uint8_t *end = buf + 64;
-  if (config->isPic) {
-    uint32_t afterBcl = 4 * in.plt->getNumEntries() + 12;
+  if (ctx.arg.isPic) {
+    uint32_t afterBcl = 4 * ctx.in.plt->getNumEntries() + 12;
     uint32_t gotBcl = got + 4 - (glink + afterBcl);
     write32(buf + 0, 0x3d6b0000 | ha(afterBcl));  // addis r11,r11,1f-glink@ha
     write32(buf + 4, 0x7c0802a6);                 // mflr r0
@@ -148,15 +152,13 @@ void elf::writePPC32GlinkSection(uint8_t *buf, size_t numEntries) {
     write32(buf, 0x60000000);
 }
 
-PPC::PPC() {
+PPC::PPC(Ctx &ctx) : TargetInfo(ctx) {
   copyRel = R_PPC_COPY;
   gotRel = R_PPC_GLOB_DAT;
-  noneRel = R_PPC_NONE;
   pltRel = R_PPC_JMP_SLOT;
   relativeRel = R_PPC_RELATIVE;
   iRelativeRel = R_PPC_IRELATIVE;
   symbolicRel = R_PPC_ADDR32;
-  gotBaseSymInGotPlt = false;
   gotHeaderEntriesNum = 3;
   gotPltHeaderEntriesNum = 0;
   pltHeaderSize = 0;
@@ -179,19 +181,20 @@ void PPC::writeIplt(uint8_t *buf, const Symbol &sym,
                     uint64_t /*pltEntryAddr*/) const {
   // In -pie or -shared mode, assume r30 points to .got2+0x8000, and use a
   // .got2.plt_pic32. thunk.
-  writePPC32PltCallStub(buf, sym.getGotPltVA(), sym.file, 0x8000);
+  writePPC32PltCallStub(ctx, buf, sym.getGotPltVA(), sym.file, 0x8000);
 }
 
 void PPC::writeGotHeader(uint8_t *buf) const {
   // _GLOBAL_OFFSET_TABLE_[0] = _DYNAMIC
   // glibc stores _dl_runtime_resolve in _GLOBAL_OFFSET_TABLE_[1],
   // link_map in _GLOBAL_OFFSET_TABLE_[2].
-  write32(buf, mainPart->dynamic->getVA());
+  write32(buf, ctx.mainPart->dynamic->getVA());
 }
 
 void PPC::writeGotPlt(uint8_t *buf, const Symbol &s) const {
   // Address of the symbol resolver stub in .glink .
-  write32(buf, in.plt->getVA() + in.plt->headerSize + 4 * s.pltIndex);
+  write32(buf,
+          ctx.in.plt->getVA() + ctx.in.plt->headerSize + 4 * s.getPltIdx());
 }
 
 bool PPC::needsThunk(RelExpr expr, RelType type, const InputFile *file,
@@ -272,6 +275,27 @@ RelType PPC::getDynRel(RelType type) const {
   if (type == R_PPC_ADDR32)
     return type;
   return R_PPC_NONE;
+}
+
+int64_t PPC::getImplicitAddend(const uint8_t *buf, RelType type) const {
+  switch (type) {
+  case R_PPC_NONE:
+  case R_PPC_GLOB_DAT:
+  case R_PPC_JMP_SLOT:
+    return 0;
+  case R_PPC_ADDR32:
+  case R_PPC_REL32:
+  case R_PPC_RELATIVE:
+  case R_PPC_IRELATIVE:
+  case R_PPC_DTPMOD32:
+  case R_PPC_DTPREL32:
+  case R_PPC_TPREL32:
+    return SignExtend64<32>(read32(buf));
+  default:
+    internalLinkerError(getErrorLocation(buf),
+                        "cannot read addend for relocation " + toString(type));
+    return 0;
+  }
 }
 
 static std::pair<RelType, uint64_t> fromDTPREL(RelType type, uint64_t val) {
@@ -456,10 +480,14 @@ void PPC::relaxTlsIeToLe(uint8_t *loc, const Relocation &rel,
     if (insn >> 26 != 31)
       error("unrecognized instruction for IE to LE R_PPC_TLS");
     // addi rT, rT, x@tls --> addi rT, rT, x@tprel@l
-    uint32_t dFormOp = getPPCDFormOp((read32(loc) & 0x000007fe) >> 1);
-    if (dFormOp == 0)
-      error("unrecognized instruction for IE to LE R_PPC_TLS");
-    write32(loc, (dFormOp << 26) | (insn & 0x03ff0000) | lo(val));
+    unsigned secondaryOp = (read32(loc) & 0x000007fe) >> 1;
+    uint32_t dFormOp = getPPCDFormOp(secondaryOp);
+    if (dFormOp == 0) { // Expecting a DS-Form instruction.
+      dFormOp = getPPCDSFormOp(secondaryOp);
+      if (dFormOp == 0)
+        error("unrecognized instruction for IE to LE R_PPC_TLS");
+    }
+    write32(loc, (dFormOp | (insn & 0x03ff0000) | lo(val)));
     break;
   }
   default:
@@ -467,7 +495,37 @@ void PPC::relaxTlsIeToLe(uint8_t *loc, const Relocation &rel,
   }
 }
 
-TargetInfo *elf::getPPCTargetInfo() {
-  static PPC target;
+void PPC::relocateAlloc(InputSectionBase &sec, uint8_t *buf) const {
+  uint64_t secAddr = sec.getOutputSection()->addr;
+  if (auto *s = dyn_cast<InputSection>(&sec))
+    secAddr += s->outSecOff;
+  for (const Relocation &rel : sec.relocs()) {
+    uint8_t *loc = buf + rel.offset;
+    const uint64_t val = SignExtend64(
+        sec.getRelocTargetVA(sec.file, rel.type, rel.addend,
+                             secAddr + rel.offset, *rel.sym, rel.expr),
+        32);
+    switch (rel.expr) {
+    case R_RELAX_TLS_GD_TO_IE_GOT_OFF:
+      relaxTlsGdToIe(loc, rel, val);
+      break;
+    case R_RELAX_TLS_GD_TO_LE:
+      relaxTlsGdToLe(loc, rel, val);
+      break;
+    case R_RELAX_TLS_LD_TO_LE_ABS:
+      relaxTlsLdToLe(loc, rel, val);
+      break;
+    case R_RELAX_TLS_IE_TO_LE:
+      relaxTlsIeToLe(loc, rel, val);
+      break;
+    default:
+      relocate(loc, rel, val);
+      break;
+    }
+  }
+}
+
+TargetInfo *elf::getPPCTargetInfo(Ctx &ctx) {
+  static PPC target(ctx);
   return &target;
 }

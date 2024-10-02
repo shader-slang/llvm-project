@@ -13,15 +13,17 @@
 #include "InputFiles.h"
 #include "OutputSections.h"
 #include "OutputSegment.h"
+#include "SymbolTable.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/Memory.h"
-#include "lld/Common/Strings.h"
+#include "llvm/Demangle/Demangle.h"
 
 #define DEBUG_TYPE "lld"
 
 using namespace llvm;
 using namespace llvm::object;
 using namespace llvm::wasm;
+using namespace lld::wasm;
 
 namespace lld {
 std::string toString(const wasm::Symbol &sym) {
@@ -34,8 +36,8 @@ std::string maybeDemangleSymbol(StringRef name) {
   if (name == "__main_argc_argv")
     return "main";
   if (wasm::config->demangle)
-    return demangleItanium(name);
-  return std::string(name);
+    return demangle(name);
+  return name.str();
 }
 
 std::string toString(wasm::Symbol::Kind kind) {
@@ -58,12 +60,18 @@ std::string toString(wasm::Symbol::Kind kind) {
     return "UndefinedGlobal";
   case wasm::Symbol::UndefinedTableKind:
     return "UndefinedTable";
+  case wasm::Symbol::UndefinedTagKind:
+    return "UndefinedTag";
   case wasm::Symbol::LazyKind:
     return "LazyKind";
   case wasm::Symbol::SectionKind:
     return "SectionKind";
   case wasm::Symbol::OutputSectionKind:
     return "OutputSectionKind";
+  case wasm::Symbol::SharedFunctionKind:
+    return "SharedFunctionKind";
+  case wasm::Symbol::SharedDataKind:
+    return "SharedDataKind";
   }
   llvm_unreachable("invalid symbol kind");
 }
@@ -72,8 +80,8 @@ namespace wasm {
 DefinedFunction *WasmSym::callCtors;
 DefinedFunction *WasmSym::callDtors;
 DefinedFunction *WasmSym::initMemory;
-DefinedFunction *WasmSym::applyDataRelocs;
 DefinedFunction *WasmSym::applyGlobalRelocs;
+DefinedFunction *WasmSym::applyTLSRelocs;
 DefinedFunction *WasmSym::applyGlobalTLSRelocs;
 DefinedFunction *WasmSym::initTLS;
 DefinedFunction *WasmSym::startFunction;
@@ -81,15 +89,16 @@ DefinedData *WasmSym::dsoHandle;
 DefinedData *WasmSym::dataEnd;
 DefinedData *WasmSym::globalBase;
 DefinedData *WasmSym::heapBase;
+DefinedData *WasmSym::heapEnd;
 DefinedData *WasmSym::initMemoryFlag;
 GlobalSymbol *WasmSym::stackPointer;
+DefinedData *WasmSym::stackLow;
+DefinedData *WasmSym::stackHigh;
 GlobalSymbol *WasmSym::tlsBase;
 GlobalSymbol *WasmSym::tlsSize;
 GlobalSymbol *WasmSym::tlsAlign;
 UndefinedGlobal *WasmSym::tableBase;
 DefinedData *WasmSym::definedTableBase;
-UndefinedGlobal *WasmSym::tableBase32;
-DefinedData *WasmSym::definedTableBase32;
 UndefinedGlobal *WasmSym::memoryBase;
 DefinedData *WasmSym::definedMemoryBase;
 TableSymbol *WasmSym::indirectFunctionTable;
@@ -113,6 +122,8 @@ WasmSymbolType Symbol::getWasmType() const {
 const WasmSignature *Symbol::getSignature() const {
   if (auto* f = dyn_cast<FunctionSymbol>(this))
     return f->signature;
+  if (auto *t = dyn_cast<TagSymbol>(this))
+    return t->signature;
   if (auto *l = dyn_cast<LazySymbol>(this))
     return l->signature;
   return nullptr;
@@ -150,7 +161,7 @@ bool Symbol::isLive() const {
 void Symbol::markLive() {
   assert(!isDiscarded());
   referenced = true;
-  if (file != NULL && isDefined())
+  if (file != nullptr && isDefined())
     file->markLive();
   if (auto *g = dyn_cast<DefinedGlobal>(this))
     g->global->live = true;
@@ -186,11 +197,6 @@ void Symbol::setOutputSymbolIndex(uint32_t index) {
 void Symbol::setGOTIndex(uint32_t index) {
   LLVM_DEBUG(dbgs() << "setGOTIndex " << name << " -> " << index << "\n");
   assert(gotIndex == INVALID_INDEX);
-  if (config->isPic) {
-    // Any symbol that is assigned a GOT entry must be exported otherwise the
-    // dynamic linker won't be able create the entry that contains it.
-    forceExport = true;
-  }
   gotIndex = index;
 }
 
@@ -217,15 +223,20 @@ void Symbol::setHidden(bool isHidden) {
     flags |= WASM_SYMBOL_VISIBILITY_DEFAULT;
 }
 
-bool Symbol::isExported() const {
-  // Shared libraries must export all weakly defined symbols
-  // in case they contain the version that will be chosed by
-  // the dynamic linker.
-  if (config->shared && isLive() && isDefined() && isWeak())
-    return true;
+bool Symbol::isImported() const {
+  return isShared() ||
+         (isUndefined() && (importName.has_value() || forceImport));
+}
 
-  if (!isDefined() || isLocal())
+bool Symbol::isExported() const {
+  if (!isDefined() || isShared() || isLocal())
     return false;
+
+  // Shared libraries must export all weakly defined symbols
+  // in case they contain the version that will be chosen by
+  // the dynamic linker.
+  if (config->shared && isLive() && isWeak() && !isHidden())
+    return true;
 
   if (config->exportAll || (config->exportDynamic && !isHidden()))
     return true;
@@ -301,6 +312,11 @@ uint32_t DefinedFunction::getExportedFunctionIndex() const {
 
 uint64_t DefinedData::getVA() const {
   LLVM_DEBUG(dbgs() << "getVA: " << getName() << "\n");
+  // In the shared memory case, TLS symbols are relative to the start of the TLS
+  // output segment (__tls_base).  When building without shared memory, TLS
+  // symbols absolute, just like non-TLS.
+  if (isTLS() && config->sharedMemory)
+    return getOutputSegmentOffset();
   if (segment)
     return segment->getVA(value);
   return value;
@@ -369,7 +385,6 @@ bool TagSymbol::hasTagIndex() const {
 DefinedTag::DefinedTag(StringRef name, uint32_t flags, InputFile *file,
                        InputTag *tag)
     : TagSymbol(name, DefinedTagKind, flags, file,
-                tag ? &tag->getType() : nullptr,
                 tag ? &tag->signature : nullptr),
       tag(tag) {}
 
@@ -413,20 +428,15 @@ const OutputSectionSymbol *SectionSymbol::getOutputSectionSymbol() const {
   return section->outputSec->sectionSym;
 }
 
-void LazySymbol::fetch() { cast<ArchiveFile>(file)->addMember(&archiveSymbol); }
+void LazySymbol::extract() {
+  if (file->lazy) {
+    file->lazy = false;
+    symtab->addFile(file, name);
+  }
+}
 
 void LazySymbol::setWeak() {
   flags |= (flags & ~WASM_SYMBOL_BINDING_MASK) | WASM_SYMBOL_BINDING_WEAK;
-}
-
-MemoryBufferRef LazySymbol::getMemberBuffer() {
-  Archive::Child c =
-      CHECK(archiveSymbol.getMember(),
-            "could not get the member for symbol " + toString(*this));
-
-  return CHECK(c.getMemoryBufferRef(),
-               "could not get the buffer for the member defining symbol " +
-                   toString(*this));
 }
 
 void printTraceSymbolUndefined(StringRef name, const InputFile* file) {
@@ -450,6 +460,7 @@ void printTraceSymbol(Symbol *sym) {
 
 const char *defaultModule = "env";
 const char *functionTableName = "__indirect_function_table";
+const char *memoryName = "memory";
 
 } // namespace wasm
 } // namespace lld

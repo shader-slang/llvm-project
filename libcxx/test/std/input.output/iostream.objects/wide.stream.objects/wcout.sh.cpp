@@ -8,13 +8,14 @@
 
 // <iostream>
 
-// istream wcout;
+// wostream wcout;
 
-// XFAIL: LIBCXX-WINDOWS-FIXME
+// UNSUPPORTED: no-wide-characters
 
-// FILE_DEPENDENCIES: ../check-stdout.sh
 // RUN: %{build}
-// RUN: %{exec} bash check-stdout.sh "%t.exe" "1234"
+// RUN: %{exec} %t.exe > %t.actual
+// RUN: echo -n 1234 > %t.expected
+// RUN: diff %t.expected %t.actual
 
 #include <iostream>
 

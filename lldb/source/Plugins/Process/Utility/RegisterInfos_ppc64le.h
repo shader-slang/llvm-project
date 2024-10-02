@@ -31,7 +31,7 @@
                                           lldb_kind,                           \
                                           LLDB_INVALID_REGNUM,                 \
                                           gpr_##reg##_ppc64le },               \
-                                          NULL, NULL, NULL, 0                  \
+                                          NULL, NULL, NULL,                    \
   }
 #define DEFINE_FPR(reg, alt, lldb_kind)                                        \
   {                                                                            \
@@ -39,7 +39,7 @@
         {ppc64le_dwarf::dwarf_##reg##_ppc64le,                                 \
          ppc64le_dwarf::dwarf_##reg##_ppc64le, lldb_kind, LLDB_INVALID_REGNUM, \
          fpr_##reg##_ppc64le },                                                \
-         NULL, NULL, NULL, 0                                                   \
+         NULL, NULL, NULL,                                                     \
   }
 #define DEFINE_VMX(reg, lldb_kind)                                             \
   {                                                                            \
@@ -48,7 +48,7 @@
         {ppc64le_dwarf::dwarf_##reg##_ppc64le,                                 \
          ppc64le_dwarf::dwarf_##reg##_ppc64le, lldb_kind, LLDB_INVALID_REGNUM, \
          vmx_##reg##_ppc64le },                                                \
-         NULL, NULL, NULL, 0                                                   \
+         NULL, NULL, NULL,                                                     \
   }
 #define DEFINE_VSX(reg, lldb_kind)                                             \
   {                                                                            \
@@ -57,7 +57,7 @@
         {ppc64le_dwarf::dwarf_##reg##_ppc64le,                                 \
          ppc64le_dwarf::dwarf_##reg##_ppc64le, lldb_kind, LLDB_INVALID_REGNUM, \
          vsx_##reg##_ppc64le },                                                \
-         NULL, NULL, NULL, 0                                                   \
+         NULL, NULL, NULL,                                                     \
   }
 
 // General purpose registers.
@@ -148,7 +148,7 @@
        NULL,                                                                   \
        NULL,                                                                   \
        NULL,                                                                   \
-       0},                                                                     \
+       },                                                                     \
       DEFINE_VMX(vr0, LLDB_INVALID_REGNUM),                                    \
       DEFINE_VMX(vr1, LLDB_INVALID_REGNUM),                                    \
       DEFINE_VMX(vr2, LLDB_INVALID_REGNUM),                                    \
@@ -192,7 +192,7 @@
        NULL,                                                                   \
        NULL,                                                                   \
        NULL,                                                                   \
-       0},                                                                     \
+       },                                                                     \
       {"vrsave",                                                               \
        NULL,                                                                   \
        4,                                                                      \
@@ -205,7 +205,7 @@
        NULL,                                                                   \
        NULL,                                                                   \
        NULL,                                                                   \
-       0},                                                                     \
+       },                                                                     \
       DEFINE_VSX(vs0, LLDB_INVALID_REGNUM),                                    \
       DEFINE_VSX(vs1, LLDB_INVALID_REGNUM),                                    \
       DEFINE_VSX(vs2, LLDB_INVALID_REGNUM),                                    \

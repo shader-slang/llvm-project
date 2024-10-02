@@ -8,10 +8,12 @@
 
 #include "llvm/ExecutionEngine/Orc/TargetProcess/SimpleRemoteEPCServer.h"
 
+#include "llvm/ExecutionEngine/Orc/Shared/OrcRTBridge.h"
 #include "llvm/ExecutionEngine/Orc/Shared/TargetProcessControlTypes.h"
+#include "llvm/ExecutionEngine/Orc/TargetProcess/RegisterEHFrames.h"
 #include "llvm/Support/FormatVariadic.h"
-#include "llvm/Support/Host.h"
 #include "llvm/Support/Process.h"
+#include "llvm/TargetParser/Host.h"
 
 #include "OrcRTBootstrap.h"
 
@@ -22,7 +24,9 @@ using namespace llvm::orc::shared;
 namespace llvm {
 namespace orc {
 
-SimpleRemoteEPCServer::Dispatcher::~Dispatcher() {}
+ExecutorBootstrapService::~ExecutorBootstrapService() = default;
+
+SimpleRemoteEPCServer::Dispatcher::~Dispatcher() = default;
 
 #if LLVM_ENABLE_THREADS
 void SimpleRemoteEPCServer::ThreadDispatcher::dispatch(
@@ -49,19 +53,43 @@ void SimpleRemoteEPCServer::ThreadDispatcher::shutdown() {
 }
 #endif
 
-StringMap<ExecutorAddress> SimpleRemoteEPCServer::defaultBootstrapSymbols() {
-  StringMap<ExecutorAddress> DBS;
+StringMap<ExecutorAddr> SimpleRemoteEPCServer::defaultBootstrapSymbols() {
+  StringMap<ExecutorAddr> DBS;
   rt_bootstrap::addTo(DBS);
-  DBS["__llvm_orc_load_dylib"] = ExecutorAddress::fromPtr(&loadDylibWrapper);
-  DBS["__llvm_orc_lookup_symbols"] =
-      ExecutorAddress::fromPtr(&lookupSymbolsWrapper);
   return DBS;
 }
 
 Expected<SimpleRemoteEPCTransportClient::HandleMessageAction>
 SimpleRemoteEPCServer::handleMessage(SimpleRemoteEPCOpcode OpC, uint64_t SeqNo,
-                                     ExecutorAddress TagAddr,
+                                     ExecutorAddr TagAddr,
                                      SimpleRemoteEPCArgBytesVector ArgBytes) {
+
+  LLVM_DEBUG({
+    dbgs() << "SimpleRemoteEPCServer::handleMessage: opc = ";
+    switch (OpC) {
+    case SimpleRemoteEPCOpcode::Setup:
+      dbgs() << "Setup";
+      assert(SeqNo == 0 && "Non-zero SeqNo for Setup?");
+      assert(!TagAddr && "Non-zero TagAddr for Setup?");
+      break;
+    case SimpleRemoteEPCOpcode::Hangup:
+      dbgs() << "Hangup";
+      assert(SeqNo == 0 && "Non-zero SeqNo for Hangup?");
+      assert(!TagAddr && "Non-zero TagAddr for Hangup?");
+      break;
+    case SimpleRemoteEPCOpcode::Result:
+      dbgs() << "Result";
+      assert(!TagAddr && "Non-zero TagAddr for Result?");
+      break;
+    case SimpleRemoteEPCOpcode::CallWrapper:
+      dbgs() << "CallWrapper";
+      break;
+    }
+    dbgs() << ", seqno = " << SeqNo << ", tag-addr = " << TagAddr
+           << ", arg-buffer = " << formatv("{0:x}", ArgBytes.size())
+           << " bytes\n";
+  });
+
   using UT = std::underlying_type_t<SimpleRemoteEPCOpcode>;
   if (static_cast<UT>(OpC) > static_cast<UT>(SimpleRemoteEPCOpcode::LastOpC))
     return make_error<StringError>("Unexpected opcode",
@@ -105,11 +133,15 @@ void SimpleRemoteEPCServer::handleDisconnect(Error Err) {
     KV.second->set_value(
         shared::WrapperFunctionResult::createOutOfBandError("disconnecting"));
 
-  // TODO: Free attached resources.
-  // 1. Close libraries in DylibHandles.
-
   // Wait for dispatcher to clear.
   D->shutdown();
+
+  // Shut down services.
+  while (!Services.empty()) {
+    ShutdownErr =
+      joinErrors(std::move(ShutdownErr), Services.back()->shutdown());
+    Services.pop_back();
+  }
 
   std::lock_guard<std::mutex> Lock(ServerStateMutex);
   ShutdownErr = joinErrors(std::move(ShutdownErr), std::move(Err));
@@ -117,8 +149,46 @@ void SimpleRemoteEPCServer::handleDisconnect(Error Err) {
   ShutdownCV.notify_all();
 }
 
+Error SimpleRemoteEPCServer::sendMessage(SimpleRemoteEPCOpcode OpC,
+                                         uint64_t SeqNo, ExecutorAddr TagAddr,
+                                         ArrayRef<char> ArgBytes) {
+
+  LLVM_DEBUG({
+    dbgs() << "SimpleRemoteEPCServer::sendMessage: opc = ";
+    switch (OpC) {
+    case SimpleRemoteEPCOpcode::Setup:
+      dbgs() << "Setup";
+      assert(SeqNo == 0 && "Non-zero SeqNo for Setup?");
+      assert(!TagAddr && "Non-zero TagAddr for Setup?");
+      break;
+    case SimpleRemoteEPCOpcode::Hangup:
+      dbgs() << "Hangup";
+      assert(SeqNo == 0 && "Non-zero SeqNo for Hangup?");
+      assert(!TagAddr && "Non-zero TagAddr for Hangup?");
+      break;
+    case SimpleRemoteEPCOpcode::Result:
+      dbgs() << "Result";
+      assert(!TagAddr && "Non-zero TagAddr for Result?");
+      break;
+    case SimpleRemoteEPCOpcode::CallWrapper:
+      dbgs() << "CallWrapper";
+      break;
+    }
+    dbgs() << ", seqno = " << SeqNo << ", tag-addr = " << TagAddr
+           << ", arg-buffer = " << formatv("{0:x}", ArgBytes.size())
+           << " bytes\n";
+  });
+  auto Err = T->sendMessage(OpC, SeqNo, TagAddr, ArgBytes);
+  LLVM_DEBUG({
+    if (Err)
+      dbgs() << "  \\--> SimpleRemoteEPC::sendMessage failed\n";
+  });
+  return Err;
+}
+
 Error SimpleRemoteEPCServer::sendSetupMessage(
-    StringMap<ExecutorAddress> BootstrapSymbols) {
+    StringMap<std::vector<char>> BootstrapMap,
+    StringMap<ExecutorAddr> BootstrapSymbols) {
 
   using namespace SimpleRemoteEPCDefaultBootstrapSymbolNames;
 
@@ -129,16 +199,19 @@ Error SimpleRemoteEPCServer::sendSetupMessage(
     EI.PageSize = *PageSize;
   else
     return PageSize.takeError();
+  EI.BootstrapMap = std::move(BootstrapMap);
   EI.BootstrapSymbols = std::move(BootstrapSymbols);
 
   assert(!EI.BootstrapSymbols.count(ExecutorSessionObjectName) &&
          "Dispatch context name should not be set");
   assert(!EI.BootstrapSymbols.count(DispatchFnName) &&
          "Dispatch function name should not be set");
-  EI.BootstrapSymbols[ExecutorSessionObjectName] =
-      ExecutorAddress::fromPtr(this);
-  EI.BootstrapSymbols[DispatchFnName] =
-      ExecutorAddress::fromPtr(jitDispatchEntry);
+  EI.BootstrapSymbols[ExecutorSessionObjectName] = ExecutorAddr::fromPtr(this);
+  EI.BootstrapSymbols[DispatchFnName] = ExecutorAddr::fromPtr(jitDispatchEntry);
+  EI.BootstrapSymbols[rt::RegisterEHFrameSectionWrapperName] =
+      ExecutorAddr::fromPtr(&llvm_orc_registerEHFrameSectionWrapper);
+  EI.BootstrapSymbols[rt::DeregisterEHFrameSectionWrapperName] =
+      ExecutorAddr::fromPtr(&llvm_orc_deregisterEHFrameSectionWrapper);
 
   using SPSSerialize =
       shared::SPSArgList<shared::SPSSimpleRemoteEPCExecutorInfo>;
@@ -149,12 +222,12 @@ Error SimpleRemoteEPCServer::sendSetupMessage(
     return make_error<StringError>("Could not send setup packet",
                                    inconvertibleErrorCode());
 
-  return T->sendMessage(SimpleRemoteEPCOpcode::Setup, 0, ExecutorAddress(),
-                        {SetupPacketBytes.data(), SetupPacketBytes.size()});
+  return sendMessage(SimpleRemoteEPCOpcode::Setup, 0, ExecutorAddr(),
+                     {SetupPacketBytes.data(), SetupPacketBytes.size()});
 }
 
 Error SimpleRemoteEPCServer::handleResult(
-    uint64_t SeqNo, ExecutorAddress TagAddr,
+    uint64_t SeqNo, ExecutorAddr TagAddr,
     SimpleRemoteEPCArgBytesVector ArgBytes) {
   std::promise<shared::WrapperFunctionResult> *P = nullptr;
   {
@@ -175,89 +248,19 @@ Error SimpleRemoteEPCServer::handleResult(
 }
 
 void SimpleRemoteEPCServer::handleCallWrapper(
-    uint64_t RemoteSeqNo, ExecutorAddress TagAddr,
+    uint64_t RemoteSeqNo, ExecutorAddr TagAddr,
     SimpleRemoteEPCArgBytesVector ArgBytes) {
   D->dispatch([this, RemoteSeqNo, TagAddr, ArgBytes = std::move(ArgBytes)]() {
     using WrapperFnTy =
-        shared::detail::CWrapperFunctionResult (*)(const char *, size_t);
+        shared::CWrapperFunctionResult (*)(const char *, size_t);
     auto *Fn = TagAddr.toPtr<WrapperFnTy>();
     shared::WrapperFunctionResult ResultBytes(
         Fn(ArgBytes.data(), ArgBytes.size()));
-    if (auto Err = T->sendMessage(SimpleRemoteEPCOpcode::Result, RemoteSeqNo,
-                                  ExecutorAddress(),
-                                  {ResultBytes.data(), ResultBytes.size()}))
+    if (auto Err = sendMessage(SimpleRemoteEPCOpcode::Result, RemoteSeqNo,
+                               ExecutorAddr(),
+                               {ResultBytes.data(), ResultBytes.size()}))
       ReportError(std::move(Err));
   });
-}
-
-shared::detail::CWrapperFunctionResult
-SimpleRemoteEPCServer::loadDylibWrapper(const char *ArgData, size_t ArgSize) {
-  return shared::WrapperFunction<shared::SPSLoadDylibSignature>::handle(
-             ArgData, ArgSize,
-             [](ExecutorAddress ExecutorSessionObj, std::string Path,
-                uint64_t Flags) -> Expected<uint64_t> {
-               return ExecutorSessionObj.toPtr<SimpleRemoteEPCServer *>()
-                   ->loadDylib(Path, Flags);
-             })
-      .release();
-}
-
-shared::detail::CWrapperFunctionResult
-SimpleRemoteEPCServer::lookupSymbolsWrapper(const char *ArgData,
-                                            size_t ArgSize) {
-  return shared::WrapperFunction<shared::SPSLookupSymbolsSignature>::handle(
-             ArgData, ArgSize,
-             [](ExecutorAddress ExecutorSessionObj,
-                std::vector<RemoteSymbolLookup> Lookup) {
-               return ExecutorSessionObj.toPtr<SimpleRemoteEPCServer *>()
-                   ->lookupSymbols(Lookup);
-             })
-      .release();
-}
-
-Expected<tpctypes::DylibHandle>
-SimpleRemoteEPCServer::loadDylib(const std::string &Path, uint64_t Mode) {
-  std::string ErrMsg;
-  const char *P = Path.empty() ? nullptr : Path.c_str();
-  auto DL = sys::DynamicLibrary::getPermanentLibrary(P, &ErrMsg);
-  if (!DL.isValid())
-    return make_error<StringError>(std::move(ErrMsg), inconvertibleErrorCode());
-  std::lock_guard<std::mutex> Lock(ServerStateMutex);
-  uint64_t Id = Dylibs.size();
-  Dylibs.push_back(std::move(DL));
-  return Id;
-}
-
-Expected<std::vector<std::vector<ExecutorAddress>>>
-SimpleRemoteEPCServer::lookupSymbols(const std::vector<RemoteSymbolLookup> &L) {
-  std::vector<std::vector<ExecutorAddress>> Result;
-
-  for (const auto &E : L) {
-    if (E.H >= Dylibs.size())
-      return make_error<StringError>("Unrecognized handle",
-                                     inconvertibleErrorCode());
-    auto &DL = Dylibs[E.H];
-    Result.push_back({});
-
-    for (const auto &Sym : E.Symbols) {
-
-      const char *DemangledSymName = Sym.Name.c_str();
-#ifdef __APPLE__
-      if (*DemangledSymName == '_')
-        ++DemangledSymName;
-#endif
-
-      void *Addr = DL.getAddressOfSymbol(DemangledSymName);
-      if (!Addr && Sym.Required)
-        return make_error<StringError>(Twine("Missing definition for ") +
-                                           DemangledSymName,
-                                       inconvertibleErrorCode());
-
-      Result.back().push_back(ExecutorAddress::fromPtr(Addr));
-    }
-  }
-
-  return std::move(Result);
 }
 
 shared::WrapperFunctionResult
@@ -277,15 +280,14 @@ SimpleRemoteEPCServer::doJITDispatch(const void *FnTag, const char *ArgData,
     PendingJITDispatchResults[SeqNo] = &ResultP;
   }
 
-  if (auto Err =
-          T->sendMessage(SimpleRemoteEPCOpcode::CallWrapper, SeqNo,
-                         ExecutorAddress::fromPtr(FnTag), {ArgData, ArgSize}))
+  if (auto Err = sendMessage(SimpleRemoteEPCOpcode::CallWrapper, SeqNo,
+                             ExecutorAddr::fromPtr(FnTag), {ArgData, ArgSize}))
     ReportError(std::move(Err));
 
   return ResultF.get();
 }
 
-shared::detail::CWrapperFunctionResult
+shared::CWrapperFunctionResult
 SimpleRemoteEPCServer::jitDispatchEntry(void *DispatchCtx, const void *FnTag,
                                         const char *ArgData, size_t ArgSize) {
   return reinterpret_cast<SimpleRemoteEPCServer *>(DispatchCtx)

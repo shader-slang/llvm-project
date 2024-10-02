@@ -14,12 +14,6 @@
 #include <type_traits>
 #include "test_macros.h"
 
-#if TEST_STD_VER >= 11 && defined(_LIBCPP_VERSION)
-#define LIBCPP11_STATIC_ASSERT(...) static_assert(__VA_ARGS__)
-#else
-#define LIBCPP11_STATIC_ASSERT(...) ((void)0)
-#endif
-
 struct A
 {
     explicit A(int);
@@ -234,8 +228,8 @@ int main(int, char**)
     // But the rvalue to lvalue reference binding isn't allowed according to
     // [over.match.ref] despite Clang accepting it.
     test_is_constructible<int&, ExplicitTo<int&>>();
-#ifndef TEST_COMPILER_GCC
-    test_is_constructible<const int&, ExplicitTo<int&&>>();
+#ifndef TEST_COMPILER_CLANG
+    test_is_not_constructible<const int&, ExplicitTo<int&&>>();
 #endif
 
     static_assert(std::is_constructible<int&&, ExplicitTo<int&&>>::value, "");

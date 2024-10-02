@@ -19,7 +19,7 @@ LLDB_PLUGIN_DEFINE(ObjCPlusPlusLanguage)
 bool ObjCPlusPlusLanguage::IsSourceFile(llvm::StringRef file_path) const {
   const auto suffixes = {".h", ".mm"};
   for (auto suffix : suffixes) {
-    if (file_path.endswith_insensitive(suffix))
+    if (file_path.ends_with_insensitive(suffix))
       return true;
   }
   return false;
@@ -32,16 +32,6 @@ void ObjCPlusPlusLanguage::Initialize() {
 
 void ObjCPlusPlusLanguage::Terminate() {
   PluginManager::UnregisterPlugin(CreateInstance);
-}
-
-lldb_private::ConstString ObjCPlusPlusLanguage::GetPluginNameStatic() {
-  static ConstString g_name("objcplusplus");
-  return g_name;
-}
-
-// PluginInterface protocol
-lldb_private::ConstString ObjCPlusPlusLanguage::GetPluginName() {
-  return GetPluginNameStatic();
 }
 
 // Static Functions

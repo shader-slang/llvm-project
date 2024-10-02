@@ -18,7 +18,7 @@
 #include "llvm/IR/Module.h"
 
 #include "lldb/Expression/IRMemoryMap.h"
-#include "lldb/Symbol/ObjectFile.h"
+#include "lldb/Expression/ObjectFileJIT.h"
 #include "lldb/Symbol/SymbolContext.h"
 #include "lldb/Utility/DataBufferHeap.h"
 #include "lldb/lldb-forward.h"
@@ -221,9 +221,6 @@ private:
                                       const std::vector<ConstString> &C_names,
                                       const SymbolContext &sc);
 
-  void CollectFallbackNames(std::vector<ConstString> &fallback_names,
-                            const std::vector<ConstString> &C_names);
-
   lldb::addr_t FindInSymbols(const std::vector<ConstString> &names,
                              const lldb_private::SymbolContext &sc,
                              bool &symbol_was_missing_weak);
@@ -350,10 +347,9 @@ private:
     AllocationRecord(uintptr_t host_address, uint32_t permissions,
                      lldb::SectionType sect_type, size_t size,
                      unsigned alignment, unsigned section_id, const char *name)
-        : m_name(), m_process_address(LLDB_INVALID_ADDRESS),
-          m_host_address(host_address), m_permissions(permissions),
-          m_sect_type(sect_type), m_size(size), m_alignment(alignment),
-          m_section_id(section_id) {
+        : m_process_address(LLDB_INVALID_ADDRESS), m_host_address(host_address),
+          m_permissions(permissions), m_sect_type(sect_type), m_size(size),
+          m_alignment(alignment), m_section_id(section_id) {
       if (name && name[0])
         m_name = name;
     }

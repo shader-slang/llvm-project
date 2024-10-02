@@ -10,18 +10,18 @@ Concepts
 
 **Layer:** The representation of trace data between passes. For Intel PT there are two types of layers:
 
- **Instruction Layer:** Composed of the load addresses of the instructions in the trace. In an effort to save space, 
- metadata is only stored for instructions that are of interest, not every instruction in the trace. HTR contains a 
+ **Instruction Layer:** Composed of the load addresses of the instructions in the trace. In an effort to save space,
+ metadata is only stored for instructions that are of interest, not every instruction in the trace. HTR contains a
  single instruction layer.
 
- **Block Layer:** Composed of blocks - a block in *layer n* refers to a sequence of blocks in *layer n - 1*. A block in 
- *layer 1* refers to a sequence of instructions in *layer 0* (the instruction layer). Metadata is stored for each block in 
+ **Block Layer:** Composed of blocks - a block in *layer n* refers to a sequence of blocks in *layer n - 1*. A block in
+ *layer 1* refers to a sequence of instructions in *layer 0* (the instruction layer). Metadata is stored for each block in
  a block layer. HTR contains one or more block layers.
 
 **Pass:** A transformation applied to a *layer* that generates a new *layer* that is a more summarized, consolidated representation of the trace data.
 A pass merges instructions/blocks based on its specific purpose - for example, a pass designed to summarize a processor trace by function calls would merge all the blocks of a function into a single block representing the entire function.
 
-The image below illusrates the transformation of a trace's representation (HTR)
+The image below illustrates the transformation of a trace's representation (HTR)
 
 .. image:: media/htr-example.png
 

@@ -11,9 +11,10 @@ add_mlir_conversion_library(MLIRSCFToOpenMP
   Core
 
   LINK_LIBS PUBLIC
-  MLIRLLVMIR
-  MLIROpenMP
-  MLIRSCF
-  MLIRStandard
+  MLIRAnalysis
+  MLIRArithDialect
+  MLIRLLVMDialect
+  MLIROpenMPDialect
+  MLIRSCFDialect
   MLIRTransforms
   )

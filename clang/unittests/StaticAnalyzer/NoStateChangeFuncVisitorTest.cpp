@@ -14,6 +14,7 @@
 #include "clang/StaticAnalyzer/Core/BugReporter/CommonBugCategories.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CallDescription.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExplodedGraph.h"
@@ -81,31 +82,28 @@ public:
 
 template <class Visitor>
 class StatefulChecker : public Checker<check::PreCall> {
-  mutable std::unique_ptr<BugType> BT;
+  const BugType BT{this, "error()", categories::SecurityError};
 
 public:
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const {
-    if (Call.isCalled(CallDescription{"preventError", 0})) {
+    if (CallDescription{CDM::SimpleFunc, {"preventError"}, 0}.matches(Call)) {
       C.addTransition(C.getState()->set<ErrorPrevented>(true));
       return;
     }
 
-    if (Call.isCalled(CallDescription{"allowError", 0})) {
+    if (CallDescription{CDM::SimpleFunc, {"allowError"}, 0}.matches(Call)) {
       C.addTransition(C.getState()->set<ErrorPrevented>(false));
       return;
     }
 
-    if (Call.isCalled(CallDescription{"error", 0})) {
+    if (CallDescription{CDM::SimpleFunc, {"error"}, 0}.matches(Call)) {
       if (C.getState()->get<ErrorPrevented>())
         return;
       const ExplodedNode *N = C.generateErrorNode();
       if (!N)
         return;
-      if (!BT)
-        BT.reset(new BugType(this->getCheckerName(), "error()",
-                             categories::SecurityError));
       auto R =
-          std::make_unique<PathSensitiveBugReport>(*BT, "error() called", N);
+          std::make_unique<PathSensitiveBugReport>(BT, "error() called", N);
       R->template addVisitor<Visitor>();
       C.emitReport(std::move(R));
     }

@@ -10,7 +10,7 @@
 
 define dso_preemptable i32 @f1() nounwind {
 entry:
-  %tmp = load i32, i32* @t1, align 4
+  %tmp = load i32, ptr @t1, align 4
   ret i32 %tmp
 
 ; PIC32-LABEL:       f1:
@@ -40,7 +40,7 @@ entry:
 
 define dso_preemptable i32 @f2() nounwind {
 entry:
-  %tmp = load i32, i32* @t2, align 4
+  %tmp = load i32, ptr @t2, align 4
   ret i32 %tmp
 
 ; PIC32-LABEL:       f2:
@@ -71,8 +71,8 @@ define dso_preemptable i32 @f3() nounwind {
 entry:
 ; PIC32-LABEL:      f3:
 ; PIC32:   addu    $[[R0:[a-z0-9]+]], $2, $25
-; PIC32:   lw      $25, %call16(__tls_get_addr)($[[R0]])
 ; PIC32:   addiu   $4, $[[R0]], %tlsldm(f3.i)
+; PIC32:   lw      $25, %call16(__tls_get_addr)($[[R0]])
 ; PIC32:   jalr    $25
 ; PIC32:   lui     $[[R0:[0-9]+]], %dtprel_hi(f3.i)
 ; PIC32:   addu    $[[R1:[0-9]+]], $[[R0]], $2
@@ -84,8 +84,8 @@ entry:
 ; PIC64:   lui     $[[R0:[a-z0-9]+]], %hi(%neg(%gp_rel(f3)))
 ; PIC64:   daddu   $[[R0]], $[[R0]], $25
 ; PIC64:   daddiu  $[[R1:[a-z0-9]+]], $[[R0]], %lo(%neg(%gp_rel(f3)))
-; PIC64:   ld      $25, %call16(__tls_get_addr)($[[R1]])
 ; PIC64:   daddiu  $4, $[[R1]], %tlsldm(f3.i)
+; PIC64:   ld      $25, %call16(__tls_get_addr)($[[R1]])
 ; PIC64:   jalr    $25
 ; PIC64:   lui     $[[R0:[0-9]+]], %dtprel_hi(f3.i)
 ; PIC64:   daddu   $[[R1:[0-9]+]], $[[R0]], $2
@@ -100,8 +100,8 @@ entry:
 ; MM:   addu16  $[[R1:[0-9]+]], $[[R0]], $2
 ; MM:   lw      ${{[0-9]+}}, %dtprel_lo(f3.i)($[[R1]])
 
-  %0 = load i32, i32* @f3.i, align 4
+  %0 = load i32, ptr @f3.i, align 4
   %inc = add nsw i32 %0, 1
-  store i32 %inc, i32* @f3.i, align 4
+  store i32 %inc, ptr @f3.i, align 4
   ret i32 %inc
 }

@@ -9,8 +9,15 @@
 #ifndef FORTRAN_RUNTIME_COMMAND_H_
 #define FORTRAN_RUNTIME_COMMAND_H_
 
-#include "flang/Runtime/cpp-type.h"
 #include "flang/Runtime/entry-names.h"
+#include <cstdint>
+
+#ifdef _WIN32
+// On Windows* OS GetCurrentProcessId returns DWORD aka uint32_t
+typedef std::uint32_t pid_t;
+#else
+#include "sys/types.h" //pid_t
+#endif
 
 namespace Fortran::runtime {
 class Descriptor;
@@ -20,22 +27,38 @@ extern "C" {
 //
 // Lowering may need to cast the result to match the precision of the default
 // integer kind.
-CppTypeFor<TypeCategory::Integer, 4> RTNAME(ArgumentCount)();
+std::int32_t RTNAME(ArgumentCount)();
+
+// Calls getpid()
+pid_t RTNAME(GetPID)();
+
+// 16.9.82 GET_COMMAND
+// Try to get the value of the whole command. All of the parameters are
+// optional.
+// Return a STATUS as described in the standard.
+std::int32_t RTNAME(GetCommand)(const Descriptor *command = nullptr,
+    const Descriptor *length = nullptr, const Descriptor *errmsg = nullptr,
+    const char *sourceFile = nullptr, int line = 0);
 
 // 16.9.83 GET_COMMAND_ARGUMENT
-// We're breaking up the interface into several different functions, since most
-// of the parameters are optional.
-
 // Try to get the value of the n'th argument.
 // Returns a STATUS as described in the standard.
-CppTypeFor<TypeCategory::Integer, 4> RTNAME(ArgumentValue)(
-    CppTypeFor<TypeCategory::Integer, 4> n, const Descriptor *value,
-    const Descriptor *errmsg);
+std::int32_t RTNAME(GetCommandArgument)(std::int32_t n,
+    const Descriptor *argument = nullptr, const Descriptor *length = nullptr,
+    const Descriptor *errmsg = nullptr, const char *sourceFile = nullptr,
+    int line = 0);
 
-// Try to get the significant length of the n'th argument.
-// Returns 0 if it doesn't manage.
-CppTypeFor<TypeCategory::Integer, 4> RTNAME(ArgumentLength)(
-    CppTypeFor<TypeCategory::Integer, 4> n);
+// 16.9.84 GET_ENVIRONMENT_VARIABLE
+// Try to get the value of the environment variable specified by NAME.
+// Returns a STATUS as described in the standard.
+std::int32_t RTNAME(GetEnvVariable)(const Descriptor &name,
+    const Descriptor *value = nullptr, const Descriptor *length = nullptr,
+    bool trim_name = true, const Descriptor *errmsg = nullptr,
+    const char *sourceFile = nullptr, int line = 0);
+
+// Calls getcwd()
+std::int32_t RTNAME(GetCwd)(
+    const Descriptor &cwd, const char *sourceFile, int line);
 }
 } // namespace Fortran::runtime
 

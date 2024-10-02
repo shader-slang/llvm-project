@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/Runtime/stop.h"
+#include "environment.h"
 #include "file.h"
 #include "io-error.h"
 #include "terminator.h"
@@ -25,21 +26,31 @@ static void DescribeIEEESignaledExceptions() {
 #endif
   if (excepts) {
     std::fputs("IEEE arithmetic exceptions signaled:", stderr);
+#ifdef FE_DIVBYZERO
     if (excepts & FE_DIVBYZERO) {
       std::fputs(" DIVBYZERO", stderr);
     }
+#endif
+#ifdef FE_INEXACT
     if (excepts & FE_INEXACT) {
       std::fputs(" INEXACT", stderr);
     }
+#endif
+#ifdef FE_INVALID
     if (excepts & FE_INVALID) {
       std::fputs(" INVALID", stderr);
     }
+#endif
+#ifdef FE_OVERFLOW
     if (excepts & FE_OVERFLOW) {
       std::fputs(" OVERFLOW", stderr);
     }
+#endif
+#ifdef FE_UNDERFLOW
     if (excepts & FE_UNDERFLOW) {
       std::fputs(" UNDERFLOW", stderr);
     }
+#endif
     std::fputc('\n', stderr);
   }
 }
@@ -52,6 +63,9 @@ static void CloseAllExternalUnits(const char *why) {
 [[noreturn]] void RTNAME(StopStatement)(
     int code, bool isErrorStop, bool quiet) {
   CloseAllExternalUnits("STOP statement");
+  if (Fortran::runtime::executionEnvironment.noStopMessage && code == 0) {
+    quiet = true;
+  }
   if (!quiet) {
     std::fprintf(stderr, "Fortran %s", isErrorStop ? "ERROR STOP" : "STOP");
     if (code != EXIT_SUCCESS) {
@@ -67,11 +81,19 @@ static void CloseAllExternalUnits(const char *why) {
     const char *code, std::size_t length, bool isErrorStop, bool quiet) {
   CloseAllExternalUnits("STOP statement");
   if (!quiet) {
-    std::fprintf(stderr, "Fortran %s: %.*s\n",
-        isErrorStop ? "ERROR STOP" : "STOP", static_cast<int>(length), code);
+    if (Fortran::runtime::executionEnvironment.noStopMessage && !isErrorStop) {
+      std::fprintf(stderr, "%.*s\n", static_cast<int>(length), code);
+    } else {
+      std::fprintf(stderr, "Fortran %s: %.*s\n",
+          isErrorStop ? "ERROR STOP" : "STOP", static_cast<int>(length), code);
+    }
     DescribeIEEESignaledExceptions();
   }
-  std::exit(EXIT_FAILURE);
+  if (isErrorStop) {
+    std::exit(EXIT_FAILURE);
+  } else {
+    std::exit(EXIT_SUCCESS);
+  }
 }
 
 static bool StartPause() {
@@ -123,5 +145,20 @@ void RTNAME(PauseStatementText)(const char *code, std::size_t length) {
 [[noreturn]] void RTNAME(ProgramEndStatement)() {
   CloseAllExternalUnits("END statement");
   std::exit(EXIT_SUCCESS);
+}
+
+[[noreturn]] void RTNAME(Exit)(int status) {
+  CloseAllExternalUnits("CALL EXIT()");
+  std::exit(status);
+}
+
+[[noreturn]] void RTNAME(Abort)() {
+  // TODO: Add backtrace call, unless with `-fno-backtrace`.
+  std::abort();
+}
+
+[[noreturn]] void RTNAME(ReportFatalUserError)(
+    const char *message, const char *source, int line) {
+  Fortran::runtime::Terminator{source, line}.Crash(message);
 }
 }

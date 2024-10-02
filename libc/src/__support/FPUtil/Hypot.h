@@ -6,60 +6,48 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_SRC_SUPPORT_FPUTIL_HYPOT_H
-#define LLVM_LIBC_SRC_SUPPORT_FPUTIL_HYPOT_H
+#ifndef LLVM_LIBC_SRC___SUPPORT_FPUTIL_HYPOT_H
+#define LLVM_LIBC_SRC___SUPPORT_FPUTIL_HYPOT_H
 
 #include "BasicOperations.h"
+#include "FEnvImpl.h"
 #include "FPBits.h"
-#include "utils/CPP/TypeTraits.h"
+#include "rounding_mode.h"
+#include "src/__support/CPP/bit.h"
+#include "src/__support/CPP/type_traits.h"
+#include "src/__support/common.h"
+#include "src/__support/macros/config.h"
+#include "src/__support/uint128.h"
 
-namespace __llvm_libc {
+namespace LIBC_NAMESPACE_DECL {
 namespace fputil {
 
 namespace internal {
 
-template <typename T> static inline T findLeadingOne(T mant, int &shift_length);
-
-template <>
-inline uint32_t findLeadingOne<uint32_t>(uint32_t mant, int &shift_length) {
+template <typename T>
+LIBC_INLINE T find_leading_one(T mant, int &shift_length) {
   shift_length = 0;
-  constexpr int nsteps = 5;
-  constexpr uint32_t bounds[nsteps] = {1 << 16, 1 << 8, 1 << 4, 1 << 2, 1 << 1};
-  constexpr int shifts[nsteps] = {16, 8, 4, 2, 1};
-  for (int i = 0; i < nsteps; ++i) {
-    if (mant >= bounds[i]) {
-      shift_length += shifts[i];
-      mant >>= shifts[i];
-    }
+  if (mant > 0) {
+    shift_length = (sizeof(mant) * 8) - 1 - cpp::countl_zero(mant);
   }
-  return 1U << shift_length;
-}
-
-template <>
-inline uint64_t findLeadingOne<uint64_t>(uint64_t mant, int &shift_length) {
-  shift_length = 0;
-  constexpr int nsteps = 6;
-  constexpr uint64_t bounds[nsteps] = {1ULL << 32, 1ULL << 16, 1ULL << 8,
-                                       1ULL << 4,  1ULL << 2,  1ULL << 1};
-  constexpr int shifts[nsteps] = {32, 16, 8, 4, 2, 1};
-  for (int i = 0; i < nsteps; ++i) {
-    if (mant >= bounds[i]) {
-      shift_length += shifts[i];
-      mant >>= shifts[i];
-    }
-  }
-  return 1ULL << shift_length;
+  return T(1) << shift_length;
 }
 
 } // namespace internal
 
 template <typename T> struct DoubleLength;
 
-template <> struct DoubleLength<uint16_t> { using Type = uint32_t; };
+template <> struct DoubleLength<uint16_t> {
+  using Type = uint32_t;
+};
 
-template <> struct DoubleLength<uint32_t> { using Type = uint64_t; };
+template <> struct DoubleLength<uint32_t> {
+  using Type = uint64_t;
+};
 
-template <> struct DoubleLength<uint64_t> { using Type = __uint128_t; };
+template <> struct DoubleLength<uint64_t> {
+  using Type = UInt128;
+};
 
 // Correctly rounded IEEE 754 HYPOT(x, y) with round to nearest, ties to even.
 //
@@ -115,100 +103,95 @@ template <> struct DoubleLength<uint64_t> { using Type = __uint128_t; };
 //   - HYPOT(x, y) is +Inf if x or y is +Inf or -Inf; else
 //   - HYPOT(x, y) is NaN if x or y is NaN.
 //
-template <typename T,
-          cpp::EnableIfType<cpp::IsFloatingPointType<T>::Value, int> = 0>
-static inline T hypot(T x, T y) {
+template <typename T, cpp::enable_if_t<cpp::is_floating_point_v<T>, int> = 0>
+LIBC_INLINE T hypot(T x, T y) {
   using FPBits_t = FPBits<T>;
-  using UIntType = typename FPBits<T>::UIntType;
-  using DUIntType = typename DoubleLength<UIntType>::Type;
+  using StorageType = typename FPBits<T>::StorageType;
+  using DStorageType = typename DoubleLength<StorageType>::Type;
 
-  FPBits_t x_bits(x), y_bits(y);
+  FPBits_t x_abs = FPBits_t(x).abs();
+  FPBits_t y_abs = FPBits_t(y).abs();
 
-  if (x_bits.isInf() || y_bits.isInf()) {
-    return T(FPBits_t::inf());
-  }
-  if (x_bits.isNaN()) {
-    return x;
-  }
-  if (y_bits.isNaN()) {
+  bool x_abs_larger = x_abs.uintval() >= y_abs.uintval();
+
+  FPBits_t a_bits = x_abs_larger ? x_abs : y_abs;
+  FPBits_t b_bits = x_abs_larger ? y_abs : x_abs;
+
+  if (LIBC_UNLIKELY(a_bits.is_inf_or_nan())) {
+    if (x_abs.is_signaling_nan() || y_abs.is_signaling_nan()) {
+      fputil::raise_except_if_required(FE_INVALID);
+      return FPBits_t::quiet_nan().get_val();
+    }
+    if (x_abs.is_inf() || y_abs.is_inf())
+      return FPBits_t::inf().get_val();
+    if (x_abs.is_nan())
+      return x;
+    // y is nan
     return y;
   }
 
-  uint16_t a_exp, b_exp, out_exp;
-  UIntType a_mant, b_mant;
-  DUIntType a_mant_sq, b_mant_sq;
+  uint16_t a_exp = a_bits.get_biased_exponent();
+  uint16_t b_exp = b_bits.get_biased_exponent();
+
+  if ((a_exp - b_exp >= FPBits_t::FRACTION_LEN + 2) || (x == 0) || (y == 0))
+    return x_abs.get_val() + y_abs.get_val();
+
+  uint64_t out_exp = a_exp;
+  StorageType a_mant = a_bits.get_mantissa();
+  StorageType b_mant = b_bits.get_mantissa();
+  DStorageType a_mant_sq, b_mant_sq;
   bool sticky_bits;
 
-  if ((x_bits.getUnbiasedExponent() >=
-       y_bits.getUnbiasedExponent() + MantissaWidth<T>::value + 2) ||
-      (y == 0)) {
-    return abs(x);
-  } else if ((y_bits.getUnbiasedExponent() >=
-              x_bits.getUnbiasedExponent() + MantissaWidth<T>::value + 2) ||
-             (x == 0)) {
-    y_bits.setSign(0);
-    return abs(y);
-  }
-
-  if (x >= y) {
-    a_exp = x_bits.getUnbiasedExponent();
-    a_mant = x_bits.getMantissa();
-    b_exp = y_bits.getUnbiasedExponent();
-    b_mant = y_bits.getMantissa();
-  } else {
-    a_exp = y_bits.getUnbiasedExponent();
-    a_mant = y_bits.getMantissa();
-    b_exp = x_bits.getUnbiasedExponent();
-    b_mant = x_bits.getMantissa();
-  }
-
-  out_exp = a_exp;
-
   // Add an extra bit to simplify the final rounding bit computation.
-  constexpr UIntType one = UIntType(1) << (MantissaWidth<T>::value + 1);
+  constexpr StorageType ONE = StorageType(1) << (FPBits_t::FRACTION_LEN + 1);
 
   a_mant <<= 1;
   b_mant <<= 1;
 
-  UIntType leading_one;
+  StorageType leading_one;
   int y_mant_width;
   if (a_exp != 0) {
-    leading_one = one;
-    a_mant |= one;
-    y_mant_width = MantissaWidth<T>::value + 1;
+    leading_one = ONE;
+    a_mant |= ONE;
+    y_mant_width = FPBits_t::FRACTION_LEN + 1;
   } else {
-    leading_one = internal::findLeadingOne(a_mant, y_mant_width);
+    leading_one = internal::find_leading_one(a_mant, y_mant_width);
+    a_exp = 1;
   }
 
-  if (b_exp != 0) {
-    b_mant |= one;
-  }
+  if (b_exp != 0)
+    b_mant |= ONE;
+  else
+    b_exp = 1;
 
-  a_mant_sq = static_cast<DUIntType>(a_mant) * a_mant;
-  b_mant_sq = static_cast<DUIntType>(b_mant) * b_mant;
+  a_mant_sq = static_cast<DStorageType>(a_mant) * a_mant;
+  b_mant_sq = static_cast<DStorageType>(b_mant) * b_mant;
 
   // At this point, a_exp >= b_exp > a_exp - 25, so in order to line up aSqMant
   // and bSqMant, we need to shift bSqMant to the right by (a_exp - b_exp) bits.
   // But before that, remember to store the losing bits to sticky.
   // The shift length is for a^2 and b^2, so it's double of the exponent
   // difference between a and b.
-  uint16_t shift_length = 2 * (a_exp - b_exp);
+  uint16_t shift_length = static_cast<uint16_t>(2 * (a_exp - b_exp));
   sticky_bits =
-      ((b_mant_sq & ((DUIntType(1) << shift_length) - DUIntType(1))) !=
-       DUIntType(0));
+      ((b_mant_sq & ((DStorageType(1) << shift_length) - DStorageType(1))) !=
+       DStorageType(0));
   b_mant_sq >>= shift_length;
 
-  DUIntType sum = a_mant_sq + b_mant_sq;
-  if (sum >= (DUIntType(1) << (2 * y_mant_width + 2))) {
+  DStorageType sum = a_mant_sq + b_mant_sq;
+  if (sum >= (DStorageType(1) << (2 * y_mant_width + 2))) {
     // a^2 + b^2 >= 4* leading_one^2, so we will need an extra bit to the left.
-    if (leading_one == one) {
+    if (leading_one == ONE) {
       // For normal result, we discard the last 2 bits of the sum and increase
       // the exponent.
       sticky_bits = sticky_bits || ((sum & 0x3U) != 0);
       sum >>= 2;
       ++out_exp;
-      if (out_exp >= FPBits_t::maxExponent) {
-        return T(FPBits_t::inf());
+      if (out_exp >= FPBits_t::MAX_BIASED_EXPONENT) {
+        if (int round_mode = quick_get_round();
+            round_mode == FE_TONEAREST || round_mode == FE_UPWARD)
+          return FPBits_t::inf().get_val();
+        return FPBits_t::max_normal().get_val();
       }
     } else {
       // For denormal result, we simply move the leading bit of the result to
@@ -218,51 +201,66 @@ static inline T hypot(T x, T y) {
     }
   }
 
-  UIntType Y = leading_one;
-  UIntType R = static_cast<UIntType>(sum >> y_mant_width) - leading_one;
-  UIntType tailBits = static_cast<UIntType>(sum) & (leading_one - 1);
+  StorageType y_new = leading_one;
+  StorageType r = static_cast<StorageType>(sum >> y_mant_width) - leading_one;
+  StorageType tail_bits = static_cast<StorageType>(sum) & (leading_one - 1);
 
-  for (UIntType current_bit = leading_one >> 1; current_bit;
+  for (StorageType current_bit = leading_one >> 1; current_bit;
        current_bit >>= 1) {
-    R = (R << 1) + ((tailBits & current_bit) ? 1 : 0);
-    UIntType tmp = (Y << 1) + current_bit; // 2*y(n - 1) + 2^(-n)
-    if (R >= tmp) {
-      R -= tmp;
-      Y += current_bit;
+    r = (r << 1) + ((tail_bits & current_bit) ? 1 : 0);
+    StorageType tmp = (y_new << 1) + current_bit; // 2*y_new(n - 1) + 2^(-n)
+    if (r >= tmp) {
+      r -= tmp;
+      y_new += current_bit;
     }
   }
 
-  bool round_bit = Y & UIntType(1);
-  bool lsb = Y & UIntType(2);
+  bool round_bit = y_new & StorageType(1);
+  bool lsb = y_new & StorageType(2);
 
-  if (Y >= one) {
-    Y -= one;
+  if (y_new >= ONE) {
+    y_new -= ONE;
 
     if (out_exp == 0) {
       out_exp = 1;
     }
   }
 
-  Y >>= 1;
+  y_new >>= 1;
 
   // Round to the nearest, tie to even.
-  if (round_bit && (lsb || sticky_bits || (R != 0))) {
-    ++Y;
+  int round_mode = quick_get_round();
+  switch (round_mode) {
+  case FE_TONEAREST:
+    // Round to nearest, ties to even
+    if (round_bit && (lsb || sticky_bits || (r != 0)))
+      ++y_new;
+    break;
+  case FE_UPWARD:
+    if (round_bit || sticky_bits || (r != 0))
+      ++y_new;
+    break;
   }
 
-  if (Y >= (one >> 1)) {
-    Y -= one >> 1;
+  if (y_new >= (ONE >> 1)) {
+    y_new -= ONE >> 1;
     ++out_exp;
-    if (out_exp >= FPBits_t::maxExponent) {
-      return T(FPBits_t::inf());
+    if (out_exp >= FPBits_t::MAX_BIASED_EXPONENT) {
+      if (round_mode == FE_TONEAREST || round_mode == FE_UPWARD)
+        return FPBits_t::inf().get_val();
+      return FPBits_t::max_normal().get_val();
     }
   }
 
-  Y |= static_cast<UIntType>(out_exp) << MantissaWidth<T>::value;
-  return *reinterpret_cast<T *>(&Y);
+  y_new |= static_cast<StorageType>(out_exp) << FPBits_t::FRACTION_LEN;
+
+  if (!(round_bit || sticky_bits || (r != 0)))
+    fputil::clear_except_if_required(FE_INEXACT);
+
+  return cpp::bit_cast<T>(y_new);
 }
 
 } // namespace fputil
-} // namespace __llvm_libc
+} // namespace LIBC_NAMESPACE_DECL
 
-#endif // LLVM_LIBC_SRC_SUPPORT_FPUTIL_HYPOT_H
+#endif // LLVM_LIBC_SRC___SUPPORT_FPUTIL_HYPOT_H

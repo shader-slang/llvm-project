@@ -31,18 +31,16 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IntrinsicsAArch64.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Debug.h"
+#include <optional>
 
 using namespace llvm;
 using namespace llvm::PatternMatch;
 
 #define DEBUG_TYPE "aarch64-sve-intrinsic-opts"
-
-namespace llvm {
-void initializeSVEIntrinsicOptsPass(PassRegistry &);
-}
 
 namespace {
 struct SVEIntrinsicOpts : public ModulePass {
@@ -141,8 +139,8 @@ bool SVEIntrinsicOpts::coalescePTrueIntrinsicCalls(
     return false;
 
   // Find the ptrue with the most lanes.
-  auto *MostEncompassingPTrue = *std::max_element(
-      PTrues.begin(), PTrues.end(), [](auto *PTrue1, auto *PTrue2) {
+  auto *MostEncompassingPTrue =
+      *llvm::max_element(PTrues, [](auto *PTrue1, auto *PTrue2) {
         auto *PTrue1VTy = cast<ScalableVectorType>(PTrue1->getType());
         auto *PTrue2VTy = cast<ScalableVectorType>(PTrue2->getType());
         return PTrue1VTy->getElementCount().getKnownMinValue() <
@@ -152,7 +150,7 @@ bool SVEIntrinsicOpts::coalescePTrueIntrinsicCalls(
   // Remove the most encompassing ptrue, as well as any promoted ptrues, leaving
   // behind only the ptrues to be coalesced.
   PTrues.remove(MostEncompassingPTrue);
-  PTrues.remove_if([](auto *PTrue) { return isPTruePromoted(PTrue); });
+  PTrues.remove_if(isPTruePromoted);
 
   // Hoist MostEncompassingPTrue to the start of the basic block. It is always
   // safe to do this, since ptrue intrinsic calls are guaranteed to have no
@@ -287,10 +285,10 @@ bool SVEIntrinsicOpts::optimizePredicateStore(Instruction *I) {
   if (!Attr.isValid())
     return false;
 
-  unsigned MinVScale, MaxVScale;
-  std::tie(MinVScale, MaxVScale) = Attr.getVScaleRangeArgs();
+  unsigned MinVScale = Attr.getVScaleRangeMin();
+  std::optional<unsigned> MaxVScale = Attr.getVScaleRangeMax();
   // The transform needs to know the exact runtime length of scalable vectors
-  if (MinVScale != MaxVScale || MinVScale == 0)
+  if (!MaxVScale || MinVScale != MaxVScale)
     return false;
 
   auto *PredType =
@@ -309,8 +307,7 @@ bool SVEIntrinsicOpts::optimizePredicateStore(Instruction *I) {
 
   // ..where the value stored comes from a vector extract..
   auto *IntrI = dyn_cast<IntrinsicInst>(Store->getOperand(0));
-  if (!IntrI ||
-      IntrI->getIntrinsicID() != Intrinsic::experimental_vector_extract)
+  if (!IntrI || IntrI->getIntrinsicID() != Intrinsic::vector_extract)
     return false;
 
   // ..that is extracting from index 0..
@@ -329,10 +326,7 @@ bool SVEIntrinsicOpts::optimizePredicateStore(Instruction *I) {
   IRBuilder<> Builder(I->getContext());
   Builder.SetInsertPoint(I);
 
-  auto *PtrBitCast = Builder.CreateBitCast(
-      Store->getPointerOperand(),
-      PredType->getPointerTo(Store->getPointerAddressSpace()));
-  Builder.CreateStore(BitCast->getOperand(0), PtrBitCast);
+  Builder.CreateStore(BitCast->getOperand(0), Store->getPointerOperand());
 
   Store->eraseFromParent();
   if (IntrI->getNumUses() == 0)
@@ -351,10 +345,10 @@ bool SVEIntrinsicOpts::optimizePredicateLoad(Instruction *I) {
   if (!Attr.isValid())
     return false;
 
-  unsigned MinVScale, MaxVScale;
-  std::tie(MinVScale, MaxVScale) = Attr.getVScaleRangeArgs();
+  unsigned MinVScale = Attr.getVScaleRangeMin();
+  std::optional<unsigned> MaxVScale = Attr.getVScaleRangeMax();
   // The transform needs to know the exact runtime length of scalable vectors
-  if (MinVScale != MaxVScale || MinVScale == 0)
+  if (!MaxVScale || MinVScale != MaxVScale)
     return false;
 
   auto *PredType =
@@ -369,8 +363,7 @@ bool SVEIntrinsicOpts::optimizePredicateLoad(Instruction *I) {
 
   // ..whose operand is a vector_insert..
   auto *IntrI = dyn_cast<IntrinsicInst>(BitCast->getOperand(0));
-  if (!IntrI ||
-      IntrI->getIntrinsicID() != Intrinsic::experimental_vector_insert)
+  if (!IntrI || IntrI->getIntrinsicID() != Intrinsic::vector_insert)
     return false;
 
   // ..that is inserting into index zero of an undef vector..
@@ -390,10 +383,7 @@ bool SVEIntrinsicOpts::optimizePredicateLoad(Instruction *I) {
   IRBuilder<> Builder(I->getContext());
   Builder.SetInsertPoint(Load);
 
-  auto *PtrBitCast = Builder.CreateBitCast(
-      Load->getPointerOperand(),
-      PredType->getPointerTo(Load->getPointerAddressSpace()));
-  auto *LoadPred = Builder.CreateLoad(PredType, PtrBitCast);
+  auto *LoadPred = Builder.CreateLoad(PredType, Load->getPointerOperand());
 
   BitCast->replaceAllUsesWith(LoadPred);
   BitCast->eraseFromParent();
@@ -455,8 +445,8 @@ bool SVEIntrinsicOpts::runOnModule(Module &M) {
       continue;
 
     switch (F.getIntrinsicID()) {
-    case Intrinsic::experimental_vector_extract:
-    case Intrinsic::experimental_vector_insert:
+    case Intrinsic::vector_extract:
+    case Intrinsic::vector_insert:
     case Intrinsic::aarch64_sve_ptrue:
       for (User *U : F.users())
         Functions.insert(cast<Instruction>(U)->getFunction());

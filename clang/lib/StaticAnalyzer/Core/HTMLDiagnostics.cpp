@@ -27,6 +27,7 @@
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/StaticAnalyzer/Core/PathDiagnosticConsumers.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/RewriteBuffer.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallString.h"
@@ -52,6 +53,7 @@
 
 using namespace clang;
 using namespace ento;
+using llvm::RewriteBuffer;
 
 //===----------------------------------------------------------------------===//
 // Boilerplate.
@@ -68,6 +70,9 @@ class HTMLDiagnostics : public PathDiagnosticConsumer {
   bool noDir = false;
   const Preprocessor &PP;
   const bool SupportsCrossFileDiagnostics;
+  llvm::StringSet<> EmittedHashes;
+  html::RelexRewriteCacheRef RewriterCache =
+      html::instantiateRelexRewriteCache();
 
 public:
   HTMLDiagnostics(PathDiagnosticConsumerOptions DiagOpts,
@@ -112,7 +117,7 @@ public:
   // Add HTML header/footers to file specified by FID
   void FinalizeHTML(const PathDiagnostic &D, Rewriter &R,
                     const SourceManager &SMgr, const PathPieces &path,
-                    FileID FID, const FileEntry *Entry, const char *declName);
+                    FileID FID, FileEntryRef Entry, const char *declName);
 
   // Rewrite the file specified by FID with HTML formatting.
   void RewriteFile(Rewriter &R, const PathPieces &path, FileID FID);
@@ -301,6 +306,13 @@ void HTMLDiagnostics::ReportDiag(const PathDiagnostic& D,
       }
   }
 
+  SmallString<32> IssueHash = getIssueHash(D, PP);
+  auto [It, IsNew] = EmittedHashes.insert(IssueHash);
+  if (!IsNew) {
+    // We've already emitted a duplicate issue. It'll get overwritten anyway.
+    return;
+  }
+
   std::string report = GenerateHTML(D, R, SMgr, path, declName.c_str());
   if (report.empty()) {
     llvm::errs() << "warning: no diagnostics generated for main file.\n";
@@ -326,13 +338,13 @@ void HTMLDiagnostics::ReportDiag(const PathDiagnostic& D,
     FileID ReportFile =
         path.back()->getLocation().asLocation().getExpansionLoc().getFileID();
 
-    const FileEntry *Entry = SMgr.getFileEntryForID(ReportFile);
+    OptionalFileEntryRef Entry = SMgr.getFileEntryRefForID(ReportFile);
 
     FileName << llvm::sys::path::filename(Entry->getName()).str() << "-"
              << declName.c_str() << "-" << offsetDecl << "-";
   }
 
-  FileName << StringRef(getIssueHash(D, PP)).substr(0, 6).str() << ".html";
+  FileName << StringRef(IssueHash).substr(0, 6).str() << ".html";
 
   SmallString<128> ResultPath;
   llvm::sys::path::append(ResultPath, Directory, FileName.str());
@@ -396,7 +408,7 @@ std::string HTMLDiagnostics::GenerateHTML(const PathDiagnostic& D, Rewriter &R,
         os << "<div class=FileNav><a href=\"#File" << (I - 1)->getHashValue()
            << "\">&#x2190;</a></div>";
 
-      os << "<h4 class=FileName>" << SMgr.getFileEntryForID(*I)->getName()
+      os << "<h4 class=FileName>" << SMgr.getFileEntryRefForID(*I)->getName()
          << "</h4>\n";
 
       // Right nav arrow
@@ -410,7 +422,7 @@ std::string HTMLDiagnostics::GenerateHTML(const PathDiagnostic& D, Rewriter &R,
     }
 
     // Append files to the main report file in the order they appear in the path
-    for (auto I : llvm::make_range(FileIDs.begin() + 1, FileIDs.end())) {
+    for (auto I : llvm::drop_begin(FileIDs)) {
       std::string s;
       llvm::raw_string_ostream os(s);
 
@@ -429,15 +441,15 @@ std::string HTMLDiagnostics::GenerateHTML(const PathDiagnostic& D, Rewriter &R,
   // Add CSS, header, and footer.
   FileID FID =
       path.back()->getLocation().asLocation().getExpansionLoc().getFileID();
-  const FileEntry* Entry = SMgr.getFileEntryForID(FID);
-  FinalizeHTML(D, R, SMgr, path, FileIDs[0], Entry, declName);
+  OptionalFileEntryRef Entry = SMgr.getFileEntryRefForID(FID);
+  FinalizeHTML(D, R, SMgr, path, FileIDs[0], *Entry, declName);
 
   std::string file;
   llvm::raw_string_ostream os(file);
   for (auto BI : *Buf)
     os << BI;
 
-  return os.str();
+  return file;
 }
 
 void HTMLDiagnostics::dumpCoverageData(
@@ -534,19 +546,20 @@ document.addEventListener("DOMContentLoaded", function() {
 </form>
 )<<<";
 
-  return os.str();
+  return s;
 }
 
-void HTMLDiagnostics::FinalizeHTML(const PathDiagnostic& D, Rewriter &R,
-    const SourceManager& SMgr, const PathPieces& path, FileID FID,
-    const FileEntry *Entry, const char *declName) {
+void HTMLDiagnostics::FinalizeHTML(const PathDiagnostic &D, Rewriter &R,
+                                   const SourceManager &SMgr,
+                                   const PathPieces &path, FileID FID,
+                                   FileEntryRef Entry, const char *declName) {
   // This is a cludge; basically we want to append either the full
   // working directory if we have no directory information.  This is
   // a work in progress.
 
   llvm::SmallString<0> DirName;
 
-  if (llvm::sys::path::is_relative(Entry->getName())) {
+  if (llvm::sys::path::is_relative(Entry.getName())) {
     llvm::sys::fs::current_path(DirName);
     DirName += '/';
   }
@@ -575,7 +588,7 @@ void HTMLDiagnostics::FinalizeHTML(const PathDiagnostic& D, Rewriter &R,
        << "<h3>Bug Summary</h3>\n<table class=\"simpletable\">\n"
           "<tr><td class=\"rowname\">File:</td><td>"
        << html::EscapeText(DirName)
-       << html::EscapeText(Entry->getName())
+       << html::EscapeText(Entry.getName())
        << "</td></tr>\n<tr><td class=\"rowname\">Warning:</td><td>"
           "<a href=\"#EndPath\">line "
        << LineNumber
@@ -592,19 +605,19 @@ void HTMLDiagnostics::FinalizeHTML(const PathDiagnostic& D, Rewriter &R,
             P->getLocation().asLocation().getExpansionLineNumber();
         int ColumnNumber =
             P->getLocation().asLocation().getExpansionColumnNumber();
+        ++NumExtraPieces;
         os << "<tr><td class=\"rowname\">Note:</td><td>"
            << "<a href=\"#Note" << NumExtraPieces << "\">line "
            << LineNumber << ", column " << ColumnNumber << "</a><br />"
            << P->getString() << "</td></tr>";
-        ++NumExtraPieces;
       }
     }
 
     // Output any other meta data.
 
-    for (PathDiagnostic::meta_iterator I = D.meta_begin(), E = D.meta_end();
-         I != E; ++I) {
-      os << "<tr><td></td><td>" << html::EscapeText(*I) << "</td></tr>\n";
+    for (const std::string &Metadata :
+         llvm::make_range(D.meta_begin(), D.meta_end())) {
+      os << "<tr><td></td><td>" << html::EscapeText(Metadata) << "</td></tr>\n";
     }
 
     os << R"<<<(
@@ -656,9 +669,9 @@ void HTMLDiagnostics::FinalizeHTML(const PathDiagnostic& D, Rewriter &R,
     if (!BugCategory.empty())
       os << "\n<!-- BUGCATEGORY " << BugCategory << " -->\n";
 
-    os << "\n<!-- BUGFILE " << DirName << Entry->getName() << " -->\n";
+    os << "\n<!-- BUGFILE " << DirName << Entry.getName() << " -->\n";
 
-    os << "\n<!-- FILENAME " << llvm::sys::path::filename(Entry->getName()) << " -->\n";
+    os << "\n<!-- FILENAME " << llvm::sys::path::filename(Entry.getName()) << " -->\n";
 
     os  << "\n<!-- FUNCTIONNAME " <<  declName << " -->\n";
 
@@ -682,7 +695,7 @@ void HTMLDiagnostics::FinalizeHTML(const PathDiagnostic& D, Rewriter &R,
     R.InsertTextBefore(SMgr.getLocForStartOfFile(FID), os.str());
   }
 
-  html::AddHeaderFooterInternalBuiltinCSS(R, FID, Entry->getName());
+  html::AddHeaderFooterInternalBuiltinCSS(R, FID, Entry.getName());
 }
 
 StringRef HTMLDiagnostics::showHelpJavascript() {
@@ -752,8 +765,7 @@ static void HandlePopUpPieceEndTag(Rewriter &R,
   Out << "</div></td><td>" << Piece.getString() << "</td></tr>";
 
   // If no report made at this range mark the variable and add the end tags.
-  if (std::find(PopUpRanges.begin(), PopUpRanges.end(), Range) ==
-      PopUpRanges.end()) {
+  if (!llvm::is_contained(PopUpRanges, Range)) {
     // Store that we create a report at this range.
     PopUpRanges.push_back(Range);
 
@@ -793,8 +805,8 @@ void HTMLDiagnostics::RewriteFile(Rewriter &R, const PathPieces &path,
 
   // Stores the different ranges where we have reported something.
   std::vector<SourceRange> PopUpRanges;
-  for (auto I = path.rbegin(), E = path.rend(); I != E; ++I) {
-    const auto &Piece = *I->get();
+  for (const PathDiagnosticPieceRef &I : llvm::reverse(path)) {
+    const auto &Piece = *I.get();
 
     if (isa<PathDiagnosticPopUpPiece>(Piece)) {
       ++IndexMap[NumRegularPieces];
@@ -836,8 +848,8 @@ void HTMLDiagnostics::RewriteFile(Rewriter &R, const PathPieces &path,
   // Secondary indexing if we are having multiple pop-ups between two notes.
   // (e.g. [(13) 'a' is 'true'];  [(13.1) 'b' is 'false'];  [(13.2) 'c' is...)
   NumRegularPieces = TotalRegularPieces;
-  for (auto I = path.rbegin(), E = path.rend(); I != E; ++I) {
-    const auto &Piece = *I->get();
+  for (const PathDiagnosticPieceRef &I : llvm::reverse(path)) {
+    const auto &Piece = *I.get();
 
     if (const auto *PopUpP = dyn_cast<PathDiagnosticPopUpPiece>(&Piece)) {
       int PopUpPieceIndex = IndexMap[NumRegularPieces];
@@ -870,8 +882,8 @@ void HTMLDiagnostics::RewriteFile(Rewriter &R, const PathPieces &path,
   // If we have a preprocessor, relex the file and syntax highlight.
   // We might not have a preprocessor if we come from a deserialized AST file,
   // for example.
-  html::SyntaxHighlight(R, FID, PP);
-  html::HighlightMacros(R, FID, PP);
+  html::SyntaxHighlight(R, FID, PP, RewriterCache);
+  html::HighlightMacros(R, FID, PP, RewriterCache);
 }
 
 void HTMLDiagnostics::HandlePiece(Rewriter &R, FileID BugFileID,
@@ -1091,8 +1103,7 @@ void HTMLDiagnostics::HandlePiece(Rewriter &R, FileID BugFileID,
   ArrayRef<SourceRange> Ranges = P.getRanges();
   for (const auto &Range : Ranges) {
     // If we have already highlighted the range as a pop-up there is no work.
-    if (std::find(PopUpRanges.begin(), PopUpRanges.end(), Range) !=
-        PopUpRanges.end())
+    if (llvm::is_contained(PopUpRanges, Range))
       continue;
 
     HighlightRange(R, LPosInfo.first, Range);
@@ -1200,18 +1211,19 @@ const arrowIndices = )<<<";
                      OS.str());
 }
 
-std::string getSpanBeginForControl(const char *ClassName, unsigned Index) {
+static std::string getSpanBeginForControl(const char *ClassName,
+                                          unsigned Index) {
   std::string Result;
   llvm::raw_string_ostream OS(Result);
   OS << "<span id=\"" << ClassName << Index << "\">";
-  return OS.str();
+  return Result;
 }
 
-std::string getSpanBeginForControlStart(unsigned Index) {
+static std::string getSpanBeginForControlStart(unsigned Index) {
   return getSpanBeginForControl("start", Index);
 }
 
-std::string getSpanBeginForControlEnd(unsigned Index) {
+static std::string getSpanBeginForControlEnd(unsigned Index) {
   return getSpanBeginForControl("end", Index);
 }
 

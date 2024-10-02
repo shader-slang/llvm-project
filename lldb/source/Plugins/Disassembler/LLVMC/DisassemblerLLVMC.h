@@ -11,12 +11,12 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 
 #include "lldb/Core/Address.h"
 #include "lldb/Core/Disassembler.h"
 #include "lldb/Core/PluginManager.h"
-#include "llvm/ADT/Optional.h"
 
 class InstructionLLVMC;
 
@@ -32,10 +32,10 @@ public:
 
   static void Terminate();
 
-  static lldb_private::ConstString GetPluginNameStatic();
+  static llvm::StringRef GetPluginNameStatic() { return "llvm-mc"; }
 
-  static lldb_private::Disassembler *
-  CreateInstance(const lldb_private::ArchSpec &arch, const char *flavor);
+  static lldb::DisassemblerSP CreateInstance(const lldb_private::ArchSpec &arch,
+                                             const char *flavor);
 
   size_t DecodeInstructions(const lldb_private::Address &base_addr,
                             const lldb_private::DataExtractor &data,
@@ -43,7 +43,7 @@ public:
                             bool append, bool data_from_file) override;
 
   // PluginInterface protocol
-  lldb_private::ConstString GetPluginName() override;
+  llvm::StringRef GetPluginName() override { return GetPluginNameStatic(); }
 
 protected:
   friend class InstructionLLVMC;
@@ -77,7 +77,7 @@ protected:
   // this is a pc-relative address calculation and we need both
   // parts to calculate the symbolication.
   lldb::addr_t m_adrp_address;
-  llvm::Optional<uint32_t> m_adrp_insn;
+  std::optional<uint32_t> m_adrp_insn;
 
   // Since we need to make two actual MC Disassemblers for ARM (ARM & THUMB),
   // and there's a bit of goo to set up and own in the MC disassembler world,

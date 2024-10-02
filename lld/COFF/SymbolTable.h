@@ -20,15 +20,15 @@ namespace llvm {
 struct LTOCodeGenerator;
 }
 
-namespace lld {
-namespace coff {
+namespace lld::coff {
 
 class Chunk;
 class CommonChunk;
+class COFFLinkerContext;
 class Defined;
 class DefinedAbsolute;
 class DefinedRegular;
-class DefinedRelative;
+class ImportThunkChunk;
 class LazyArchive;
 class SectionChunk;
 class Symbol;
@@ -47,6 +47,8 @@ class Symbol;
 // There is one add* function per symbol type.
 class SymbolTable {
 public:
+  SymbolTable(COFFLinkerContext &c) : ctx(c) {}
+
   void addFile(InputFile *file);
 
   // Emit errors for symbols that cannot be resolved.
@@ -63,11 +65,11 @@ public:
   bool handleMinGWAutomaticImport(Symbol *sym, StringRef name);
 
   // Returns a list of chunks of selected symbols.
-  std::vector<Chunk *> getChunks();
+  std::vector<Chunk *> getChunks() const;
 
   // Returns a symbol for a given name. Returns a nullptr if not found.
-  Symbol *find(StringRef name);
-  Symbol *findUnderscore(StringRef name);
+  Symbol *find(StringRef name) const;
+  Symbol *findUnderscore(StringRef name) const;
 
   // Occasionally we have to resolve an undefined symbol to its
   // mangled symbol. This function tries to find a mangled name
@@ -78,7 +80,7 @@ public:
   // Build a set of COFF objects representing the combined contents of
   // BitcodeFiles and add them to the symbol table. Called after all files are
   // added and before the writer writes results to a file.
-  void addCombinedLTOObjects();
+  void compileBitcodeFiles();
 
   // Creates an Undefined symbol for a given name.
   Symbol *addUndefined(StringRef name);
@@ -88,22 +90,27 @@ public:
 
   Symbol *addUndefined(StringRef name, InputFile *f, bool isWeakAlias);
   void addLazyArchive(ArchiveFile *f, const Archive::Symbol &sym);
-  void addLazyObject(LazyObjFile *f, StringRef n);
+  void addLazyObject(InputFile *f, StringRef n);
   void addLazyDLLSymbol(DLLFile *f, DLLFile::Symbol *sym, StringRef n);
   Symbol *addAbsolute(StringRef n, COFFSymbolRef s);
   Symbol *addRegular(InputFile *f, StringRef n,
                      const llvm::object::coff_symbol_generic *s = nullptr,
-                     SectionChunk *c = nullptr, uint32_t sectionOffset = 0);
+                     SectionChunk *c = nullptr, uint32_t sectionOffset = 0,
+                     bool isWeak = false);
   std::pair<DefinedRegular *, bool>
   addComdat(InputFile *f, StringRef n,
             const llvm::object::coff_symbol_generic *s = nullptr);
   Symbol *addCommon(InputFile *f, StringRef n, uint64_t size,
                     const llvm::object::coff_symbol_generic *s = nullptr,
                     CommonChunk *c = nullptr);
-  Symbol *addImportData(StringRef n, ImportFile *f);
-  Symbol *addImportThunk(StringRef name, DefinedImportData *s,
-                         uint16_t machine);
+  DefinedImportData *addImportData(StringRef n, ImportFile *f,
+                                   Chunk *&location);
+  Defined *addImportThunk(StringRef name, DefinedImportData *s,
+                          ImportThunkChunk *chunk);
   void addLibcall(StringRef name);
+  void addEntryThunk(Symbol *from, Symbol *to);
+  void addExitThunk(Symbol *from, Symbol *to);
+  void initializeECThunks();
 
   void reportDuplicate(Symbol *existing, InputFile *newFile,
                        SectionChunk *newSc = nullptr,
@@ -111,6 +118,9 @@ public:
 
   // A list of chunks which to be added to .rdata.
   std::vector<Chunk *> localImportChunks;
+
+  // A list of EC EXP+ symbols.
+  std::vector<Symbol *> expSymbols;
 
   // Iterates symbols in non-determinstic hash table order.
   template <typename T> void forEachSymbol(T callback) {
@@ -131,15 +141,17 @@ private:
 
   llvm::DenseMap<llvm::CachedHashStringRef, Symbol *> symMap;
   std::unique_ptr<BitcodeCompiler> lto;
-};
+  bool ltoCompilationDone = false;
+  std::vector<std::pair<Symbol *, Symbol *>> entryThunks;
+  llvm::DenseMap<Symbol *, Symbol *> exitThunks;
 
-extern SymbolTable *symtab;
+  COFFLinkerContext &ctx;
+};
 
 std::vector<std::string> getSymbolLocations(ObjFile *file, uint32_t symIndex);
 
 StringRef ltrim1(StringRef s, const char *chars);
 
-} // namespace coff
-} // namespace lld
+} // namespace lld::coff
 
 #endif

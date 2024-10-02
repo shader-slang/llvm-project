@@ -5,8 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-//
-// UNSUPPORTED: libcpp-has-no-threads
 
 // <thread>
 
@@ -14,6 +12,7 @@
 
 // template <class F, class ...Args> thread(F&& f, Args&&... args);
 
+// UNSUPPORTED: no-threads
 // UNSUPPORTED: sanitizer-new-delete
 
 #include <thread>
@@ -37,7 +36,9 @@ void* operator new(std::size_t s) TEST_THROW_SPEC(std::bad_alloc)
     } while (!throw_one.compare_exchange_weak(expected, expected - 1));
     ++outstanding_new;
     void* ret = std::malloc(s);
-    if (!ret) std::abort(); // placate MSVC's unchecked malloc warning
+    if (!ret) {
+      std::abort(); // placate MSVC's unchecked malloc warning (assert() won't silence it)
+    }
     return ret;
 }
 

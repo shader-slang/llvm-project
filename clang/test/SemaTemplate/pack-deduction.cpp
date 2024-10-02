@@ -141,7 +141,7 @@ namespace partial_full_mix {
     // expected-note@-1 {{[with U = <char, double, long>]: pack expansion contains parameter pack 'U' that has a different length (2 vs. 3) from outer parameter packs}}
 
     template<typename ...U> static tuple<U...> h(tuple<pair<T, U>..., pair<int, int>>);
-    // expected-note@-1 {{[with U = <int [2]>]: pack expansion contains parameter pack 'U' that has a different length (2 vs. 1) from outer parameter packs}}
+    // expected-note@-1 {{[with U = <int[2]>]: pack expansion contains parameter pack 'U' that has a different length (2 vs. 1) from outer parameter packs}}
   };
 
   pair<tuple<int, float>, tuple<char, double>> k1 = A<int, float>().f<char>(pair<int, char>(), pair<float, double>());
@@ -184,4 +184,18 @@ struct Outer {
 void Run() {
   Outer<void>::Inner<0>().Test(1,1);
 }
+}
+
+namespace GH107560 {
+int bar(...);
+
+template <int> struct Int {};
+
+template <class ...T>
+constexpr auto foo(T... x) -> decltype(bar(T(x)...)) { return 10; }
+
+template <class ...T>
+constexpr auto baz(Int<foo<T>(T())>... x) -> int { return 1; }
+
+static_assert(baz<Int<1>, Int<2>, Int<3>>(Int<10>(), Int<10>(), Int<10>()) == 1, "");
 }

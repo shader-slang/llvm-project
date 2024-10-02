@@ -20,7 +20,6 @@ static std::string mangleStr(StringRef IRName, Mangler &Mang,
   std::string Mangled;
   raw_string_ostream SS(Mangled);
   Mang.getNameWithPrefix(SS, IRName, DL);
-  SS.flush();
   return Mangled;
 }
 
@@ -37,7 +36,6 @@ static std::string mangleFunc(StringRef IRName,
   std::string Mangled;
   raw_string_ostream SS(Mangled);
   Mang.getNameWithPrefix(SS, F, false);
-  SS.flush();
   F->eraseFromParent();
   return Mangled;
 }
@@ -154,6 +152,24 @@ TEST(ManglerTest, XCOFF) {
   EXPECT_EQ(mangleFunc("foo", llvm::GlobalValue::PrivateLinkage,
                        llvm::CallingConv::C, Mod, Mang),
             "L..foo");
+}
+
+TEST(ManglerTest, GOFF) {
+  LLVMContext Ctx;
+  DataLayout DL("m:l"); // GOFF
+  Module Mod("test", Ctx);
+  Mod.setDataLayout(DL);
+  Mangler Mang;
+
+  EXPECT_EQ(mangleStr("foo", Mang, DL), "foo");
+  EXPECT_EQ(mangleStr("\01foo", Mang, DL), "foo");
+  EXPECT_EQ(mangleStr("?foo", Mang, DL), "?foo");
+  EXPECT_EQ(mangleFunc("foo", llvm::GlobalValue::ExternalLinkage,
+                       llvm::CallingConv::C, Mod, Mang),
+            "foo");
+  EXPECT_EQ(mangleFunc("foo", llvm::GlobalValue::PrivateLinkage,
+                       llvm::CallingConv::C, Mod, Mang),
+            "L#foo");
 }
 
 } // end anonymous namespace

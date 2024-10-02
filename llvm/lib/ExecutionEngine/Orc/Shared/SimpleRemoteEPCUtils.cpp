@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ExecutionEngine/Orc/Shared/SimpleRemoteEPCUtils.h"
+#include "llvm/Config/llvm-config.h" // for LLVM_ENABLE_THREADS
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -43,8 +44,8 @@ const char *DispatchFnName = "__llvm_orc_SimpleRemoteEPC_dispatch_fn";
 
 } // end namespace SimpleRemoteEPCDefaultBootstrapSymbolNames
 
-SimpleRemoteEPCTransportClient::~SimpleRemoteEPCTransportClient() {}
-SimpleRemoteEPCTransport::~SimpleRemoteEPCTransport() {}
+SimpleRemoteEPCTransportClient::~SimpleRemoteEPCTransportClient() = default;
+SimpleRemoteEPCTransport::~SimpleRemoteEPCTransport() = default;
 
 Expected<std::unique_ptr<FDSimpleRemoteEPCTransport>>
 FDSimpleRemoteEPCTransport::Create(SimpleRemoteEPCTransportClient &C, int InFD,
@@ -69,23 +70,23 @@ FDSimpleRemoteEPCTransport::Create(SimpleRemoteEPCTransportClient &C, int InFD,
 #endif
 }
 
-FDSimpleRemoteEPCTransport::FDSimpleRemoteEPCTransport(
-    SimpleRemoteEPCTransportClient &C, int InFD, int OutFD)
-    : C(C), InFD(InFD), OutFD(OutFD) {
-#if LLVM_ENABLE_THREADS
-  ListenerThread = std::thread([this]() { listenLoop(); });
-#endif
-}
-
 FDSimpleRemoteEPCTransport::~FDSimpleRemoteEPCTransport() {
 #if LLVM_ENABLE_THREADS
   ListenerThread.join();
 #endif
 }
 
+Error FDSimpleRemoteEPCTransport::start() {
+#if LLVM_ENABLE_THREADS
+  ListenerThread = std::thread([this]() { listenLoop(); });
+  return Error::success();
+#endif
+  llvm_unreachable("Should not be called with LLVM_ENABLE_THREADS=Off");
+}
+
 Error FDSimpleRemoteEPCTransport::sendMessage(SimpleRemoteEPCOpcode OpC,
                                               uint64_t SeqNo,
-                                              ExecutorAddress TagAddr,
+                                              ExecutorAddr TagAddr,
                                               ArrayRef<char> ArgBytes) {
   char HeaderBuffer[FDMsgHeader::Size];
 
@@ -98,7 +99,7 @@ Error FDSimpleRemoteEPCTransport::sendMessage(SimpleRemoteEPCOpcode OpC,
       TagAddr.getValue();
 
   std::lock_guard<std::mutex> Lock(M);
-  if (OutFD == -1)
+  if (Disconnected)
     return make_error<StringError>("FD-transport disconnected",
                                    inconvertibleErrorCode());
   if (int ErrNo = writeBytes(HeaderBuffer, FDMsgHeader::Size))
@@ -109,28 +110,21 @@ Error FDSimpleRemoteEPCTransport::sendMessage(SimpleRemoteEPCOpcode OpC,
 }
 
 void FDSimpleRemoteEPCTransport::disconnect() {
-  int CloseInFD = -1, CloseOutFD = -1;
-  {
-    std::lock_guard<std::mutex> Lock(M);
-    std::swap(InFD, CloseInFD);
-    std::swap(OutFD, CloseOutFD);
-  }
+  if (Disconnected)
+    return; // Return if already disconnected.
 
-  // If CloseOutFD == CloseInFD then set CloseOutFD to -1 up-front so that we
-  // don't double-close.
-  if (CloseOutFD == CloseInFD)
-    CloseOutFD = -1;
+  Disconnected = true;
+  bool CloseOutFD = InFD != OutFD;
 
   // Close InFD.
-  if (CloseInFD != -1)
-    while (close(CloseInFD) == -1) {
-      if (errno == EBADF)
-        break;
-    }
+  while (close(InFD) == -1) {
+    if (errno == EBADF)
+      break;
+  }
 
   // Close OutFD.
-  if (CloseOutFD != -1) {
-    while (close(CloseOutFD) == -1) {
+  if (CloseOutFD) {
+    while (close(OutFD) == -1) {
       if (errno == EBADF)
         break;
     }
@@ -144,7 +138,7 @@ static Error makeUnexpectedEOFError() {
 
 Error FDSimpleRemoteEPCTransport::readBytes(char *Dst, size_t Size,
                                             bool *IsEOF) {
-  assert(Dst && "Attempt to read into null.");
+  assert((Size == 0 || Dst) && "Attempt to read into null.");
   ssize_t Completed = 0;
   while (Completed < static_cast<ssize_t>(Size)) {
     ssize_t Read = ::read(InFD, Dst + Completed, Size - Completed);
@@ -160,7 +154,7 @@ Error FDSimpleRemoteEPCTransport::readBytes(char *Dst, size_t Size,
         continue;
       else {
         std::lock_guard<std::mutex> Lock(M);
-        if (InFD == -1 && IsEOF) { // Disconnected locally. Pretend this is EOF.
+        if (Disconnected && IsEOF) { // disconnect called,  pretend this is EOF.
           *IsEOF = true;
           return Error::success();
         }
@@ -174,7 +168,7 @@ Error FDSimpleRemoteEPCTransport::readBytes(char *Dst, size_t Size,
 }
 
 int FDSimpleRemoteEPCTransport::writeBytes(const char *Src, size_t Size) {
-  assert(Src && "Attempt to append from null.");
+  assert((Size == 0 || Src) && "Attempt to append from null.");
   ssize_t Completed = 0;
   while (Completed < static_cast<ssize_t>(Size)) {
     ssize_t Written = ::write(OutFD, Src + Completed, Size - Completed);
@@ -197,7 +191,7 @@ void FDSimpleRemoteEPCTransport::listenLoop() {
     char HeaderBuffer[FDMsgHeader::Size];
     // Read the header buffer.
     {
-      bool IsEOF;
+      bool IsEOF = false;
       if (auto Err2 = readBytes(HeaderBuffer, FDMsgHeader::Size, &IsEOF)) {
         Err = joinErrors(std::move(Err), std::move(Err2));
         break;
@@ -210,7 +204,7 @@ void FDSimpleRemoteEPCTransport::listenLoop() {
     uint64_t MsgSize;
     SimpleRemoteEPCOpcode OpC;
     uint64_t SeqNo;
-    ExecutorAddress TagAddr;
+    ExecutorAddr TagAddr;
 
     MsgSize =
         *((support::ulittle64_t *)(HeaderBuffer + FDMsgHeader::MsgSizeOffset));
@@ -223,7 +217,7 @@ void FDSimpleRemoteEPCTransport::listenLoop() {
 
     if (MsgSize < FDMsgHeader::Size) {
       Err = joinErrors(std::move(Err),
-                       make_error<StringError>("Mesasge size too small",
+                       make_error<StringError>("Message size too small",
                                                inconvertibleErrorCode()));
       break;
     }
@@ -245,6 +239,11 @@ void FDSimpleRemoteEPCTransport::listenLoop() {
     }
   } while (true);
 
+  // Attempt to close FDs, set Disconnected to true so that subsequent
+  // sendMessage calls fail.
+  disconnect();
+
+  // Call up to the client to handle the disconnection.
   C.handleDisconnect(std::move(Err));
 }
 

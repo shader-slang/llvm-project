@@ -16,13 +16,13 @@ using namespace llvm;
 using namespace llvm::object;
 using namespace llvm::Win64EH;
 
-static const EnumEntry<unsigned> UnwindFlags[] = {
+const EnumEntry<unsigned> UnwindFlags[] = {
   { "ExceptionHandler", UNW_ExceptionHandler },
   { "TerminateHandler", UNW_TerminateHandler },
   { "ChainInfo"       , UNW_ChainInfo        }
 };
 
-static const EnumEntry<unsigned> UnwindOpInfo[] = {
+const EnumEntry<unsigned> UnwindOpInfo[] = {
   { "RAX",  0 },
   { "RCX",  1 },
   { "RDX",  2 },
@@ -315,11 +315,11 @@ void Dumper::printUnwindInfo(const Context &Ctx, const coff_section *Section,
                              off_t Offset, const UnwindInfo &UI) {
   DictScope UIS(SW, "UnwindInfo");
   SW.printNumber("Version", UI.getVersion());
-  SW.printFlags("Flags", UI.getFlags(), makeArrayRef(UnwindFlags));
+  SW.printFlags("Flags", UI.getFlags(), ArrayRef(UnwindFlags));
   SW.printNumber("PrologSize", UI.PrologSize);
   if (UI.getFrameRegister()) {
     SW.printEnum("FrameRegister", UI.getFrameRegister(),
-                 makeArrayRef(UnwindOpInfo));
+                 ArrayRef(UnwindOpInfo));
     SW.printHex("FrameOffset", UI.getFrameOffset());
   } else {
     SW.printString("FrameRegister", StringRef("-"));
@@ -337,7 +337,7 @@ void Dumper::printUnwindInfo(const Context &Ctx, const coff_section *Section,
         return;
       }
 
-      printUnwindCode(UI, makeArrayRef(UCI, UCE));
+      printUnwindCode(UI, ArrayRef(UCI, UCE));
       UCI = UCI + UsedSlots - 1;
     }
   }
@@ -397,7 +397,7 @@ void Dumper::printData(const Context &Ctx) {
     else
       consumeError(NameOrErr.takeError());
 
-    if (Name != ".pdata" && !Name.startswith(".pdata$"))
+    if (Name != ".pdata" && !Name.starts_with(".pdata$"))
       continue;
 
     const coff_section *PData = Ctx.COFF.getCOFFSection(Section);

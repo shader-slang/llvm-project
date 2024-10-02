@@ -37,7 +37,7 @@ void MemprofThreadContext::OnFinished() {
   thread = nullptr;
 }
 
-static ALIGNED(16) char thread_registry_placeholder[sizeof(ThreadRegistry)];
+alignas(16) static char thread_registry_placeholder[sizeof(ThreadRegistry)];
 static ThreadRegistry *memprof_thread_registry;
 
 static Mutex mu_for_thread_context;
@@ -80,8 +80,7 @@ MemprofThread *MemprofThread::Create(thread_callback_t start_routine, void *arg,
   thread->start_routine_ = start_routine;
   thread->arg_ = arg;
   MemprofThreadContext::CreateThreadContextArgs args = {thread, stack};
-  memprofThreadRegistry().CreateThread(*reinterpret_cast<uptr *>(thread),
-                                       detached, parent_tid, &args);
+  memprofThreadRegistry().CreateThread(0, detached, parent_tid, &args);
 
   return thread;
 }
@@ -131,7 +130,7 @@ void MemprofThread::Init(const InitOptions *options) {
   int local = 0;
   VReport(1, "T%d: stack [%p,%p) size 0x%zx; local=%p\n", tid(),
           (void *)stack_bottom_, (void *)stack_top_, stack_top_ - stack_bottom_,
-          &local);
+          (void *)&local);
 }
 
 thread_return_t
@@ -169,12 +168,8 @@ MemprofThread *CreateMainThread() {
 // OS-specific implementations that need more information passed through.
 void MemprofThread::SetThreadStackAndTls(const InitOptions *options) {
   DCHECK_EQ(options, nullptr);
-  uptr tls_size = 0;
-  uptr stack_size = 0;
-  GetThreadStackAndTls(tid() == kMainTid, &stack_bottom_, &stack_size,
-                       &tls_begin_, &tls_size);
-  stack_top_ = stack_bottom_ + stack_size;
-  tls_end_ = tls_begin_ + tls_size;
+  GetThreadStackAndTls(tid() == kMainTid, &stack_bottom_, &stack_top_,
+                       &tls_begin_, &tls_end_);
   dtls_ = DTLS_Get();
 
   if (stack_top_ != stack_bottom_) {
@@ -198,7 +193,7 @@ MemprofThread *GetCurrentThread() {
 
 void SetCurrentThread(MemprofThread *t) {
   CHECK(t->context());
-  VReport(2, "SetCurrentThread: %p for thread %p\n", t->context(),
+  VReport(2, "SetCurrentThread: %p for thread %p\n", (void *)t->context(),
           (void *)GetThreadSelf());
   // Make sure we do not reset the current MemprofThread.
   CHECK_EQ(0, TSDGet());

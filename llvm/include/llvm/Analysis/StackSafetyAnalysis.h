@@ -78,9 +78,12 @@ public:
   // Whether we can prove that all accesses to this Alloca are in-range and
   // during its lifetime.
   bool isSafe(const AllocaInst &AI) const;
-  // Whether we can prove that an instruction only accesses a live alloca in
-  // range.
-  bool accessIsSafe(const Instruction &I) const;
+
+  // Returns true if the instruction can be proven to do only two types of
+  // memory accesses:
+  //  (1) live stack locations in-bounds or
+  //  (2) non-stack locations.
+  bool stackAccessIsSafe(const Instruction &I) const;
   void print(raw_ostream &O) const;
   void dump() const;
 };
@@ -102,6 +105,7 @@ class StackSafetyPrinterPass : public PassInfoMixin<StackSafetyPrinterPass> {
 public:
   explicit StackSafetyPrinterPass(raw_ostream &OS) : OS(OS) {}
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+  static bool isRequired() { return true; }
 };
 
 /// StackSafetyInfo wrapper for the legacy pass manager
@@ -140,6 +144,7 @@ class StackSafetyGlobalPrinterPass
 public:
   explicit StackSafetyGlobalPrinterPass(raw_ostream &OS) : OS(OS) {}
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+  static bool isRequired() { return true; }
 };
 
 /// This pass performs the global (interprocedural) stack safety analysis

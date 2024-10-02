@@ -15,34 +15,75 @@
 
 namespace __tsan {
 
-TEST(Shadow, FastState) {
-  Shadow s(FastState(11, 22));
-  EXPECT_EQ(s.tid(), (u64)11);
-  EXPECT_EQ(s.epoch(), (u64)22);
-  EXPECT_EQ(s.GetIgnoreBit(), false);
-  EXPECT_EQ(s.GetFreedAndReset(), false);
-  EXPECT_EQ(s.GetHistorySize(), 0);
-  EXPECT_EQ(s.addr0(), (u64)0);
-  EXPECT_EQ(s.size(), (u64)1);
-  EXPECT_EQ(s.IsWrite(), true);
+struct Region {
+  uptr start;
+  uptr end;
+};
 
-  s.IncrementEpoch();
-  EXPECT_EQ(s.epoch(), (u64)23);
-  s.IncrementEpoch();
-  EXPECT_EQ(s.epoch(), (u64)24);
+void CheckShadow(const Shadow *s, Sid sid, Epoch epoch, uptr addr, uptr size,
+                 AccessType typ) {
+  uptr addr1 = 0;
+  uptr size1 = 0;
+  AccessType typ1 = 0;
+  s->GetAccess(&addr1, &size1, &typ1);
+  CHECK_EQ(s->sid(), sid);
+  CHECK_EQ(s->epoch(), epoch);
+  CHECK_EQ(addr1, addr);
+  CHECK_EQ(size1, size);
+  CHECK_EQ(typ1, typ);
+}
 
-  s.SetIgnoreBit();
-  EXPECT_EQ(s.GetIgnoreBit(), true);
-  s.ClearIgnoreBit();
-  EXPECT_EQ(s.GetIgnoreBit(), false);
+TEST(Shadow, Shadow) {
+  Sid sid = static_cast<Sid>(11);
+  Epoch epoch = static_cast<Epoch>(22);
+  FastState fs;
+  fs.SetSid(sid);
+  fs.SetEpoch(epoch);
+  CHECK_EQ(fs.sid(), sid);
+  CHECK_EQ(fs.epoch(), epoch);
+  CHECK_EQ(fs.GetIgnoreBit(), false);
+  fs.SetIgnoreBit();
+  CHECK_EQ(fs.GetIgnoreBit(), true);
+  fs.ClearIgnoreBit();
+  CHECK_EQ(fs.GetIgnoreBit(), false);
 
-  for (int i = 0; i < 8; i++) {
-    s.SetHistorySize(i);
-    EXPECT_EQ(s.GetHistorySize(), i);
-  }
-  s.SetHistorySize(2);
-  s.ClearHistorySize();
-  EXPECT_EQ(s.GetHistorySize(), 0);
+  Shadow s0(fs, 1, 2, kAccessWrite);
+  CheckShadow(&s0, sid, epoch, 1, 2, kAccessWrite);
+  Shadow s1(fs, 2, 3, kAccessRead);
+  CheckShadow(&s1, sid, epoch, 2, 3, kAccessRead);
+  Shadow s2(fs, 0xfffff8 + 4, 1, kAccessWrite | kAccessAtomic);
+  CheckShadow(&s2, sid, epoch, 4, 1, kAccessWrite | kAccessAtomic);
+  Shadow s3(fs, 0xfffff8 + 0, 8, kAccessRead | kAccessAtomic);
+  CheckShadow(&s3, sid, epoch, 0, 8, kAccessRead | kAccessAtomic);
+
+  CHECK(!s0.IsBothReadsOrAtomic(kAccessRead | kAccessAtomic));
+  CHECK(!s1.IsBothReadsOrAtomic(kAccessAtomic));
+  CHECK(!s1.IsBothReadsOrAtomic(kAccessWrite));
+  CHECK(s1.IsBothReadsOrAtomic(kAccessRead));
+  CHECK(s2.IsBothReadsOrAtomic(kAccessAtomic));
+  CHECK(!s2.IsBothReadsOrAtomic(kAccessWrite));
+  CHECK(!s2.IsBothReadsOrAtomic(kAccessRead));
+  CHECK(s3.IsBothReadsOrAtomic(kAccessAtomic));
+  CHECK(!s3.IsBothReadsOrAtomic(kAccessWrite));
+  CHECK(s3.IsBothReadsOrAtomic(kAccessRead));
+
+  CHECK(!s0.IsRWWeakerOrEqual(kAccessRead | kAccessAtomic));
+  CHECK(s1.IsRWWeakerOrEqual(kAccessWrite));
+  CHECK(s1.IsRWWeakerOrEqual(kAccessRead));
+  CHECK(!s1.IsRWWeakerOrEqual(kAccessWrite | kAccessAtomic));
+
+  CHECK(!s2.IsRWWeakerOrEqual(kAccessRead | kAccessAtomic));
+  CHECK(s2.IsRWWeakerOrEqual(kAccessWrite | kAccessAtomic));
+  CHECK(s2.IsRWWeakerOrEqual(kAccessRead));
+  CHECK(s2.IsRWWeakerOrEqual(kAccessWrite));
+
+  CHECK(s3.IsRWWeakerOrEqual(kAccessRead | kAccessAtomic));
+  CHECK(s3.IsRWWeakerOrEqual(kAccessWrite | kAccessAtomic));
+  CHECK(s3.IsRWWeakerOrEqual(kAccessRead));
+  CHECK(s3.IsRWWeakerOrEqual(kAccessWrite));
+
+  Shadow sro(Shadow::kRodata);
+  CheckShadow(&sro, static_cast<Sid>(0), kEpochZero, 0, 0, kAccessRead);
 }
 
 TEST(Shadow, Mapping) {
@@ -90,6 +131,30 @@ bool broken(uptr what, typename Has<Mapping::kBroken>::Result = false) {
   return Mapping::kBroken & what;
 }
 
+static int CompareRegion(const void *region_a, const void *region_b) {
+  uptr start_a = ((const struct Region *)region_a)->start;
+  uptr start_b = ((const struct Region *)region_b)->start;
+
+  if (start_a < start_b) {
+    return -1;
+  } else if (start_a > start_b) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+template <typename Mapping>
+static void AddMetaRegion(struct Region *shadows, int *num_regions, uptr start,
+                          uptr end) {
+  // If the app region is not empty, add its meta to the array.
+  if (start != end) {
+    shadows[*num_regions].start = (uptr)MemToMetaImpl::Apply<Mapping>(start);
+    shadows[*num_regions].end = (uptr)MemToMetaImpl::Apply<Mapping>(end - 1);
+    *num_regions = (*num_regions) + 1;
+  }
+}
+
 struct MappingTest {
   template <typename Mapping>
   static void Apply() {
@@ -99,6 +164,11 @@ struct MappingTest {
     TestRegion<Mapping>(Mapping::kMidAppMemBeg, Mapping::kMidAppMemEnd);
     TestRegion<Mapping>(Mapping::kHiAppMemBeg, Mapping::kHiAppMemEnd);
     TestRegion<Mapping>(Mapping::kHeapMemBeg, Mapping::kHeapMemEnd);
+
+    TestDisjointMetas<Mapping>();
+
+    // Not tested: the ordering of regions (low app vs. shadow vs. mid app
+    // etc.). That is enforced at runtime by CheckAndProtect.
   }
 
   template <typename Mapping>
@@ -135,6 +205,41 @@ struct MappingTest {
         prev = p;
       }
     }
+  }
+
+  template <typename Mapping>
+  static void TestDisjointMetas() {
+    // Checks that the meta for each app region does not overlap with
+    // the meta for other app regions. For example, the meta for a high
+    // app pointer shouldn't be aliased to the meta of a mid app pointer.
+    // Notice that this is important even though there does not exist a
+    // MetaToMem function.
+    // (If a MetaToMem function did exist, we could simply
+    // check in the TestRegion function that it inverts MemToMeta.)
+    //
+    // We don't try to be clever by allowing the non-PIE (low app)
+    // and PIE (mid and high app) meta regions to overlap.
+    struct Region metas[4];
+    int num_regions = 0;
+    AddMetaRegion<Mapping>(metas, &num_regions, Mapping::kLoAppMemBeg,
+                           Mapping::kLoAppMemEnd);
+    AddMetaRegion<Mapping>(metas, &num_regions, Mapping::kMidAppMemBeg,
+                           Mapping::kMidAppMemEnd);
+    AddMetaRegion<Mapping>(metas, &num_regions, Mapping::kHiAppMemBeg,
+                           Mapping::kHiAppMemEnd);
+    AddMetaRegion<Mapping>(metas, &num_regions, Mapping::kHeapMemBeg,
+                           Mapping::kHeapMemEnd);
+
+    // It is not required that the low app shadow is below the mid app
+    // shadow etc., hence we sort the shadows.
+    qsort(metas, num_regions, sizeof(struct Region), CompareRegion);
+
+    for (int i = 0; i < num_regions; i++)
+      Printf("[0x%lu, 0x%lu]\n", metas[i].start, metas[i].end);
+
+    if (!broken<Mapping>(kBrokenAliasedMetas))
+      for (int i = 1; i < num_regions; i++)
+        CHECK(metas[i - 1].end <= metas[i].start);
   }
 };
 

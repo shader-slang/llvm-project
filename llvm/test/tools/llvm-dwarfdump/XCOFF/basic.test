@@ -95,7 +95,7 @@
 # DWARF32-NEXT:                    DW_AT_name    ("__func__")
 # DWARF32-NEXT:                    DW_AT_decl_file       ("/basic.c")
 # DWARF32-NEXT:                    DW_AT_decl_line       (0)
-# DWARF32-NEXT:                    DW_AT_type    (0x0000005a "const char [5]")
+# DWARF32-NEXT:                    DW_AT_type    (0x0000005a "const char[5]")
 # DWARF32:       0x00000096:     NULL
 # DWARF32:       0x00000097:   NULL
 # DWARF32:       .debug_line contents:
@@ -127,12 +127,12 @@
 # DWARF32-NEXT:        dir_index: 0
 # DWARF32-NEXT:         mod_time: 0x00000000
 # DWARF32-NEXT:           length: 0x00000000
-# DWARF32:       Address            Line   Column File   ISA Discriminator Flags
-# DWARF32-NEXT:  ------------------ ------ ------ ------ --- ------------- -------------
-# DWARF32-NEXT:  0x0000000000000000      1      0      1   0             0  is_stmt
-# DWARF32-NEXT:  0x0000000000000004      3      0      1   0             0  is_stmt
-# DWARF32-NEXT:  0x0000000000000008      4      0      1   0             0  is_stmt
-# DWARF32-NEXT:  0x0000000000000080      4      0      1   0             0  is_stmt end_sequence
+# DWARF32:       Address            Line   Column File   ISA Discriminator OpIndex Flags
+# DWARF32-NEXT:  ------------------ ------ ------ ------ --- ------------- ------- -------------
+# DWARF32-NEXT:  0x0000000000000000      1      0      1   0             0       0  is_stmt
+# DWARF32-NEXT:  0x0000000000000004      3      0      1   0             0       0  is_stmt
+# DWARF32-NEXT:  0x0000000000000008      4      0      1   0             0       0  is_stmt
+# DWARF32-NEXT:  0x0000000000000080      4      0      1   0             0       0  is_stmt end_sequence
 # DWARF32:      .debug_pubnames contents:
 # DWARF32-NEXT:  length = 0x00000017, format = DWARF32, version = 0x0002, unit_offset = 0x00000000, unit_size = 0x00000098
 # DWARF32-NEXT:  Offset     Name
@@ -225,7 +225,7 @@
 # DWARF64-NEXT:                    DW_AT_name    ("__func__")
 # DWARF64-NEXT:                    DW_AT_decl_file       ("/basic.c")
 # DWARF64-NEXT:                    DW_AT_decl_line       (0)
-# DWARF64-NEXT:                    DW_AT_type    (0x00000076 "const char [5]")
+# DWARF64-NEXT:                    DW_AT_type    (0x00000076 "const char[5]")
 # DWARF64:       0x000000ce:     NULL
 # DWARF64:       0x000000cf:   NULL
 # DWARF64:       .debug_line contents:
@@ -257,12 +257,12 @@
 # DWARF64-NEXT:        dir_index: 0
 # DWARF64-NEXT:         mod_time: 0x00000000
 # DWARF64-NEXT:           length: 0x00000000
-# DWARF64:       Address            Line   Column File   ISA Discriminator Flags
-# DWARF64-NEXT:  ------------------ ------ ------ ------ --- ------------- -------------
-# DWARF64-NEXT:  0x0000000000000000      1      0      1   0             0  is_stmt
-# DWARF64-NEXT:  0x0000000000000004      3      0      1   0             0  is_stmt
-# DWARF64-NEXT:  0x0000000000000008      4      0      1   0             0  is_stmt
-# DWARF64-NEXT:  0x0000000000000080      4      0      1   0             0  is_stmt end_sequence
+# DWARF64:       Address            Line   Column File   ISA Discriminator OpIndex Flags
+# DWARF64-NEXT:  ------------------ ------ ------ ------ --- ------------- ------- -------------
+# DWARF64-NEXT:  0x0000000000000000      1      0      1   0             0       0  is_stmt
+# DWARF64-NEXT:  0x0000000000000004      3      0      1   0             0       0  is_stmt
+# DWARF64-NEXT:  0x0000000000000008      4      0      1   0             0       0  is_stmt
+# DWARF64-NEXT:  0x0000000000000080      4      0      1   0             0       0  is_stmt end_sequence
 # DWARF64:       .debug_pubnames contents:
 # DWARF64-NEXT:  length = 0x0000000000000027, format = DWARF64, version = 0x0002, unit_offset = 0x0000000000000000, unit_size = 0x00000000000000d0
 # DWARF64-NEXT:  Offset     Name

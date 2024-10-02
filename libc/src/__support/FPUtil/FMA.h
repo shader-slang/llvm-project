@@ -6,32 +6,34 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_SRC_SUPPORT_FPUTIL_FMA_H
-#define LLVM_LIBC_SRC_SUPPORT_FPUTIL_FMA_H
+#ifndef LLVM_LIBC_SRC___SUPPORT_FPUTIL_FMA_H
+#define LLVM_LIBC_SRC___SUPPORT_FPUTIL_FMA_H
 
-#include "utils/CPP/TypeTraits.h"
+#include "src/__support/CPP/type_traits.h"
+#include "src/__support/FPUtil/generic/FMA.h"
+#include "src/__support/macros/config.h"
+#include "src/__support/macros/properties/architectures.h"
+#include "src/__support/macros/properties/cpu_features.h" // LIBC_TARGET_CPU_HAS_FMA
 
-#ifdef __x86_64__
-#include "x86_64/FMA.h"
-#elif defined(__aarch64__)
-#include "aarch64/FMA.h"
-#else
-#include "generic/FMA.h"
-
-namespace __llvm_libc {
+namespace LIBC_NAMESPACE_DECL {
 namespace fputil {
 
-// We have a generic implementation available only for single precision fma as
-// we restrict it to float values for now.
-template <typename T>
-static inline cpp::EnableIfType<cpp::IsSame<T, float>::Value, T> fma(T x, T y,
-                                                                     T z) {
-  return generic::fma(x, y, z);
+template <typename OutType, typename InType>
+LIBC_INLINE OutType fma(InType x, InType y, InType z) {
+  return generic::fma<OutType>(x, y, z);
 }
 
+#ifdef LIBC_TARGET_CPU_HAS_FMA
+template <> LIBC_INLINE float fma(float x, float y, float z) {
+  return __builtin_fmaf(x, y, z);
+}
+
+template <> LIBC_INLINE double fma(double x, double y, double z) {
+  return __builtin_fma(x, y, z);
+}
+#endif // LIBC_TARGET_CPU_HAS_FMA
+
 } // namespace fputil
-} // namespace __llvm_libc
+} // namespace LIBC_NAMESPACE_DECL
 
-#endif
-
-#endif // LLVM_LIBC_SRC_SUPPORT_FPUTIL_FMA_H
+#endif // LLVM_LIBC_SRC___SUPPORT_FPUTIL_FMA_H

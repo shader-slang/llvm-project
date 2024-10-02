@@ -11,6 +11,7 @@
 #include "flang/Runtime/time-intrinsic.h"
 #include "terminator.h"
 #include "tools.h"
+#include "flang/Runtime/cpp-type.h"
 #include "flang/Runtime/descriptor.h"
 #include <algorithm>
 #include <cstdint>
@@ -18,8 +19,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#ifndef _WIN32
+#ifdef _WIN32
+#include "flang/Common/windows-include.h"
+#else
 #include <sys/time.h> // gettimeofday
+#include <sys/times.h>
+#include <unistd.h>
 #endif
 
 // CPU_TIME (Fortran 2018 16.9.57)
@@ -51,139 +56,152 @@ template <typename Unused = void> double GetCpuTime(fallback_implementation) {
   if (timestamp != static_cast<std::clock_t>(-1)) {
     return static_cast<double>(timestamp) / CLOCKS_PER_SEC;
   }
-
   // Return some negative value to represent failure.
   return -1.0;
 }
 
-// POSIX implementation using clock_gettime. This is only enabled if
+#if defined __MINGW32__
+// clock_gettime is implemented in the pthread library for MinGW.
+// Using it here would mean that all programs that link libFortranRuntime are
+// required to also link to pthread. Instead, don't use the function.
+#undef CLOCKID_CPU_TIME
+#undef CLOCKID_ELAPSED_TIME
+#else
+// Determine what clock to use for CPU time.
+#if defined CLOCK_PROCESS_CPUTIME_ID
+#define CLOCKID_CPU_TIME CLOCK_PROCESS_CPUTIME_ID
+#elif defined CLOCK_THREAD_CPUTIME_ID
+#define CLOCKID_CPU_TIME CLOCK_THREAD_CPUTIME_ID
+#else
+#undef CLOCKID_CPU_TIME
+#endif
+
+// Determine what clock to use for elapsed time.
+#if defined CLOCK_MONOTONIC
+#define CLOCKID_ELAPSED_TIME CLOCK_MONOTONIC
+#elif defined CLOCK_REALTIME
+#define CLOCKID_ELAPSED_TIME CLOCK_REALTIME
+#else
+#undef CLOCKID_ELAPSED_TIME
+#endif
+#endif
+
+#ifdef CLOCKID_CPU_TIME
+// POSIX implementation using clock_gettime. This is only enabled where
 // clock_gettime is available.
 template <typename T = int, typename U = struct timespec>
 double GetCpuTime(preferred_implementation,
     // We need some dummy parameters to pass to decltype(clock_gettime).
     T ClockId = 0, U *Timespec = nullptr,
     decltype(clock_gettime(ClockId, Timespec)) *Enabled = nullptr) {
-#if defined CLOCK_THREAD_CPUTIME_ID
-#define CLOCKID CLOCK_THREAD_CPUTIME_ID
-#elif defined CLOCK_PROCESS_CPUTIME_ID
-#define CLOCKID CLOCK_PROCESS_CPUTIME_ID
-#elif defined CLOCK_MONOTONIC
-#define CLOCKID CLOCK_MONOTONIC
-#else
-#define CLOCKID CLOCK_REALTIME
-#endif
   struct timespec tspec;
-  if (clock_gettime(CLOCKID, &tspec) == 0) {
+  if (clock_gettime(CLOCKID_CPU_TIME, &tspec) == 0) {
     return tspec.tv_nsec * 1.0e-9 + tspec.tv_sec;
   }
-
   // Return some negative value to represent failure.
   return -1.0;
 }
+#endif // CLOCKID_CPU_TIME
 
-using count_t =
-    Fortran::runtime::CppTypeFor<Fortran::common::TypeCategory::Integer, 8>;
+using count_t = std::int64_t;
+using unsigned_count_t = std::uint64_t;
 
-// This is the fallback implementation, which should work everywhere. Note that
-// in general we can't recover after std::clock has reached its maximum value.
-template <typename Unused = void>
-count_t GetSystemClockCount(fallback_implementation) {
-  std::clock_t timestamp{std::clock()};
-  if (timestamp == static_cast<std::clock_t>(-1)) {
-    // Return -HUGE() to represent failure.
-    return -std::numeric_limits<count_t>::max();
+// POSIX implementation using clock_gettime where available.  The clock_gettime
+// result is in nanoseconds, which is converted as necessary to
+//  - deciseconds for kind 1
+//  - milliseconds for kinds 2, 4
+//  - nanoseconds for kinds 8, 16
+constexpr unsigned_count_t DS_PER_SEC{10u};
+constexpr unsigned_count_t MS_PER_SEC{1'000u};
+constexpr unsigned_count_t NS_PER_SEC{1'000'000'000u};
+
+// Computes HUGE(INT(0,kind)) as an unsigned integer value.
+static constexpr inline unsigned_count_t GetHUGE(int kind) {
+  if (kind > 8) {
+    kind = 8;
   }
-
-  // If our return type is large enough to hold any value returned by
-  // std::clock, our work is done. Otherwise, we have to wrap around.
-  static constexpr auto max{std::numeric_limits<count_t>::max()};
-  if constexpr (std::numeric_limits<std::clock_t>::max() <= max) {
-    return static_cast<count_t>(timestamp);
-  } else {
-    // Since std::clock_t could be a floating point type, we can't just use the
-    // % operator, so we have to wrap around manually.
-    return static_cast<count_t>(timestamp - max * std::floor(timestamp / max));
-  }
+  return (unsigned_count_t{1} << ((8 * kind) - 1)) - 1;
 }
 
-template <typename Unused = void>
-count_t GetSystemClockCountRate(fallback_implementation) {
-  return CLOCKS_PER_SEC;
-}
-
-template <typename Unused = void>
-count_t GetSystemClockCountMax(fallback_implementation) {
-  static constexpr auto max_clock_t = std::numeric_limits<std::clock_t>::max();
-  static constexpr auto max_count_t = std::numeric_limits<count_t>::max();
-  if constexpr (max_clock_t < max_count_t) {
-    return static_cast<count_t>(max_clock_t);
-  } else {
-    return max_count_t;
+// Function converts a std::timespec_t into the desired count to
+// be returned by the timing functions in accordance with the requested
+// kind at the call site.
+count_t ConvertTimeSpecToCount(int kind, const struct timespec &tspec) {
+  const unsigned_count_t huge{GetHUGE(kind)};
+  unsigned_count_t sec{static_cast<unsigned_count_t>(tspec.tv_sec)};
+  unsigned_count_t nsec{static_cast<unsigned_count_t>(tspec.tv_nsec)};
+  if (kind >= 8) {
+    return (sec * NS_PER_SEC + nsec) % (huge + 1);
+  } else if (kind >= 2) {
+    return (sec * MS_PER_SEC + (nsec / (NS_PER_SEC / MS_PER_SEC))) % (huge + 1);
+  } else { // kind == 1
+    return (sec * DS_PER_SEC + (nsec / (NS_PER_SEC / DS_PER_SEC))) % (huge + 1);
   }
 }
 
-constexpr count_t NSECS_PER_SEC{1'000'000'000};
-
-// POSIX implementation using clock_gettime. This is only enabled if
-// clock_gettime is available.
-template <typename T = int, typename U = struct timespec>
-count_t GetSystemClockCount(preferred_implementation,
-    // We need some dummy parameters to pass to decltype(clock_gettime).
-    T ClockId = 0, U *Timespec = nullptr,
-    decltype(clock_gettime(ClockId, Timespec)) *Enabled = nullptr) {
-#if defined CLOCK_THREAD_CPUTIME_ID
-#define CLOCKID CLOCK_THREAD_CPUTIME_ID
-#elif defined CLOCK_PROCESS_CPUTIME_ID
-#define CLOCKID CLOCK_PROCESS_CPUTIME_ID
-#elif defined CLOCK_MONOTONIC
-#define CLOCKID CLOCK_MONOTONIC
-#else
-#define CLOCKID CLOCK_REALTIME
-#endif
+#ifndef _AIX
+// This is the fallback implementation, which should work everywhere.
+template <typename Unused = void>
+count_t GetSystemClockCount(int kind, fallback_implementation) {
   struct timespec tspec;
-  if (clock_gettime(CLOCKID, &tspec) != 0) {
-    // Return -HUGE() to represent failure.
-    return -std::numeric_limits<count_t>::max();
+
+  if (timespec_get(&tspec, TIME_UTC) < 0) {
+    // Return -HUGE(COUNT) to represent failure.
+    return -static_cast<count_t>(GetHUGE(kind));
   }
 
-  // Wrap around to avoid overflows.
-  constexpr count_t max_secs{
-      std::numeric_limits<count_t>::max() / NSECS_PER_SEC};
-  count_t wrapped_secs{tspec.tv_sec % max_secs};
+  // Compute the timestamp as seconds plus nanoseconds in accordance
+  // with the requested kind at the call site.
+  return ConvertTimeSpecToCount(kind, tspec);
+}
+#endif
 
-  // At this point, wrapped_secs < max_secs, and max_secs has already been
-  // truncated by the division. Therefore, we should still have enough room to
-  // add tv_nsec, since it is < NSECS_PER_SEC.
-  return tspec.tv_nsec + wrapped_secs * NSECS_PER_SEC;
+template <typename Unused = void>
+count_t GetSystemClockCountRate(int kind, fallback_implementation) {
+  return kind >= 8 ? NS_PER_SEC : kind >= 2 ? MS_PER_SEC : DS_PER_SEC;
 }
 
+template <typename Unused = void>
+count_t GetSystemClockCountMax(int kind, fallback_implementation) {
+  unsigned_count_t maxCount{GetHUGE(kind)};
+  return maxCount;
+}
+
+#ifdef CLOCKID_ELAPSED_TIME
 template <typename T = int, typename U = struct timespec>
-count_t GetSystemClockCountRate(preferred_implementation,
+count_t GetSystemClockCount(int kind, preferred_implementation,
     // We need some dummy parameters to pass to decltype(clock_gettime).
     T ClockId = 0, U *Timespec = nullptr,
     decltype(clock_gettime(ClockId, Timespec)) *Enabled = nullptr) {
-  return NSECS_PER_SEC;
+  struct timespec tspec;
+  const unsigned_count_t huge{GetHUGE(kind)};
+  if (clock_gettime(CLOCKID_ELAPSED_TIME, &tspec) != 0) {
+    return -huge; // failure
+  }
+
+  // Compute the timestamp as seconds plus nanoseconds in accordance
+  // with the requested kind at the call site.
+  return ConvertTimeSpecToCount(kind, tspec);
 }
+#endif // CLOCKID_ELAPSED_TIME
 
 template <typename T = int, typename U = struct timespec>
-count_t GetSystemClockCountMax(preferred_implementation,
+count_t GetSystemClockCountRate(int kind, preferred_implementation,
     // We need some dummy parameters to pass to decltype(clock_gettime).
     T ClockId = 0, U *Timespec = nullptr,
     decltype(clock_gettime(ClockId, Timespec)) *Enabled = nullptr) {
-  count_t max_secs{std::numeric_limits<count_t>::max() / NSECS_PER_SEC};
-  return max_secs * NSECS_PER_SEC - 1;
+  return kind >= 8 ? NS_PER_SEC : kind >= 2 ? MS_PER_SEC : DS_PER_SEC;
+}
+
+template <typename T = int, typename U = struct timespec>
+count_t GetSystemClockCountMax(int kind, preferred_implementation,
+    // We need some dummy parameters to pass to decltype(clock_gettime).
+    T ClockId = 0, U *Timespec = nullptr,
+    decltype(clock_gettime(ClockId, Timespec)) *Enabled = nullptr) {
+  return GetHUGE(kind);
 }
 
 // DATE_AND_TIME (Fortran 2018 16.9.59)
-
-// Helper to store integer value in result[at].
-template <int KIND> struct StoreIntegerAt {
-  void operator()(const Fortran::runtime::Descriptor &result, std::size_t at,
-      std::int64_t value) const {
-    *result.ZeroBasedIndexedElement<Fortran::runtime::CppTypeFor<
-        Fortran::common::TypeCategory::Integer, KIND>>(at) = value;
-  }
-};
 
 // Helper to set an integer value to -HUGE
 template <int KIND> struct StoreNegativeHugeAt {
@@ -198,7 +216,7 @@ template <int KIND> struct StoreNegativeHugeAt {
 
 // Default implementation when date and time information is not available (set
 // strings to blanks and values to -HUGE as defined by the standard).
-void DateAndTimeUnavailable(Fortran::runtime::Terminator &terminator,
+static void DateAndTimeUnavailable(Fortran::runtime::Terminator &terminator,
     char *date, std::size_t dateChars, char *time, std::size_t timeChars,
     char *zone, std::size_t zoneChars,
     const Fortran::runtime::Descriptor *values) {
@@ -229,6 +247,61 @@ void DateAndTimeUnavailable(Fortran::runtime::Terminator &terminator,
 }
 
 #ifndef _WIN32
+#ifdef _AIX
+// Compute the time difference from GMT/UTC to get around the behavior of
+// strfname on AIX that requires setting an environment variable for numeric
+// value for ZONE.
+// The ZONE and the VALUES(4) arguments of the DATE_AND_TIME intrinsic has
+// the resolution to the minute.
+static int computeUTCDiff(const tm &localTime, bool *err) {
+  tm utcTime;
+  const time_t timer{mktime(const_cast<tm *>(&localTime))};
+  if (timer < 0) {
+    *err = true;
+    return 0;
+  }
+
+  // Get the GMT/UTC time
+  if (gmtime_r(&timer, &utcTime) == nullptr) {
+    *err = true;
+    return 0;
+  }
+
+  // Adjust for day difference
+  auto dayDiff{localTime.tm_mday - utcTime.tm_mday};
+  auto localHr{localTime.tm_hour};
+  if (dayDiff > 0) {
+    if (dayDiff == 1) {
+      localHr += 24;
+    } else {
+      utcTime.tm_hour += 24;
+    }
+  } else if (dayDiff < 0) {
+    if (dayDiff == -1) {
+      utcTime.tm_hour += 24;
+    } else {
+      localHr += 24;
+    }
+  }
+  return (localHr * 60 + localTime.tm_min) -
+      (utcTime.tm_hour * 60 + utcTime.tm_min);
+}
+#endif
+
+static std::size_t getUTCOffsetToBuffer(
+    char *buffer, const std::size_t &buffSize, tm *localTime) {
+#ifdef _AIX
+  // format: +HHMM or -HHMM
+  bool err{false};
+  auto utcOffset{computeUTCDiff(*localTime, &err)};
+  auto hour{utcOffset / 60};
+  auto hrMin{hour * 100 + (utcOffset - hour * 60)};
+  auto n{sprintf(buffer, "%+05d", hrMin)};
+  return err ? 0 : n + 1;
+#else
+  return std::strftime(buffer, buffSize, "%z", localTime);
+#endif
+}
 
 // SFINAE helper to return the struct tm.tm_gmtoff which is not a POSIX standard
 // field.
@@ -245,8 +318,19 @@ GetGmtOffset(const TM &tm, fallback_implementation) {
   // tm.tm_gmtoff is not available, there may be platform dependent alternatives
   // (such as using timezone from <time.h> when available), but so far just
   // return -HUGE to report that this information is not available.
-  return -std::numeric_limits<Fortran::runtime::CppTypeFor<
-      Fortran::common::TypeCategory::Integer, KIND>>::max();
+  const auto negHuge{-std::numeric_limits<Fortran::runtime::CppTypeFor<
+      Fortran::common::TypeCategory::Integer, KIND>>::max()};
+#ifdef _AIX
+  bool err{false};
+  auto diff{computeUTCDiff(tm, &err)};
+  if (err) {
+    return negHuge;
+  } else {
+    return diff;
+  }
+#else
+  return negHuge;
+#endif
 }
 template <typename TM = struct tm> struct GmtOffsetHelper {
   template <int KIND> struct StoreGmtOffset {
@@ -259,9 +343,9 @@ template <typename TM = struct tm> struct GmtOffsetHelper {
   };
 };
 
-// Dispatch to posix implemetation when gettimeofday and localtime_r are
+// Dispatch to posix implementation where gettimeofday and localtime_r are
 // available.
-void GetDateAndTime(Fortran::runtime::Terminator &terminator, char *date,
+static void GetDateAndTime(Fortran::runtime::Terminator &terminator, char *date,
     std::size_t dateChars, char *time, std::size_t timeChars, char *zone,
     std::size_t zoneChars, const Fortran::runtime::Descriptor *values) {
 
@@ -299,7 +383,7 @@ void GetDateAndTime(Fortran::runtime::Terminator &terminator, char *date,
     // Note: this may leave the buffer empty on many platforms. Classic flang
     // has a much more complex way of doing this (see __io_timezone in classic
     // flang).
-    auto len{std::strftime(buffer, buffSize, "%z", &localTime)};
+    auto len{getUTCOffsetToBuffer(buffer, buffSize, &localTime)};
     copyBufferAndPad(zone, zoneChars, len);
   }
   if (values) {
@@ -313,8 +397,8 @@ void GetDateAndTime(Fortran::runtime::Terminator &terminator, char *date,
     int kind{typeCode->second};
     RUNTIME_CHECK(terminator, kind != 1);
     auto storeIntegerAt = [&](std::size_t atIndex, std::int64_t value) {
-      Fortran::runtime::ApplyIntegerKind<StoreIntegerAt, void>(
-          kind, terminator, *values, atIndex, value);
+      Fortran::runtime::ApplyIntegerKind<Fortran::runtime::StoreIntegerAt,
+          void>(kind, terminator, *values, atIndex, value);
     };
     storeIntegerAt(0, localTime.tm_year + 1900);
     storeIntegerAt(1, localTime.tm_mon + 1);
@@ -330,9 +414,9 @@ void GetDateAndTime(Fortran::runtime::Terminator &terminator, char *date,
 }
 
 #else
-// Fallback implementation when gettimeofday or localtime_r is not available
-// (e.g. windows).
-void GetDateAndTime(Fortran::runtime::Terminator &terminator, char *date,
+// Fallback implementation where gettimeofday or localtime_r are not both
+// available (e.g. windows).
+static void GetDateAndTime(Fortran::runtime::Terminator &terminator, char *date,
     std::size_t dateChars, char *time, std::size_t timeChars, char *zone,
     std::size_t zoneChars, const Fortran::runtime::Descriptor *values) {
   // TODO: An actual implementation for non Posix system should be added.
@@ -342,26 +426,23 @@ void GetDateAndTime(Fortran::runtime::Terminator &terminator, char *date,
       terminator, date, dateChars, time, timeChars, zone, zoneChars, values);
 }
 #endif
-} // anonymous namespace
+} // namespace
 
 namespace Fortran::runtime {
 extern "C" {
 
 double RTNAME(CpuTime)() { return GetCpuTime(0); }
 
-CppTypeFor<Fortran::common::TypeCategory::Integer, 8> RTNAME(
-    SystemClockCount)() {
-  return GetSystemClockCount(0);
+std::int64_t RTNAME(SystemClockCount)(int kind) {
+  return GetSystemClockCount(kind, 0);
 }
 
-CppTypeFor<Fortran::common::TypeCategory::Integer, 8> RTNAME(
-    SystemClockCountRate)() {
-  return GetSystemClockCountRate(0);
+std::int64_t RTNAME(SystemClockCountRate)(int kind) {
+  return GetSystemClockCountRate(kind, 0);
 }
 
-CppTypeFor<Fortran::common::TypeCategory::Integer, 8> RTNAME(
-    SystemClockCountMax)() {
-  return GetSystemClockCountMax(0);
+std::int64_t RTNAME(SystemClockCountMax)(int kind) {
+  return GetSystemClockCountMax(kind, 0);
 }
 
 void RTNAME(DateAndTime)(char *date, std::size_t dateChars, char *time,
@@ -370,6 +451,74 @@ void RTNAME(DateAndTime)(char *date, std::size_t dateChars, char *time,
   Fortran::runtime::Terminator terminator{source, line};
   return GetDateAndTime(
       terminator, date, dateChars, time, timeChars, zone, zoneChars, values);
+}
+
+void RTNAME(Etime)(const Descriptor *values, const Descriptor *time,
+    const char *sourceFile, int line) {
+  Fortran::runtime::Terminator terminator{sourceFile, line};
+
+  double usrTime = -1.0, sysTime = -1.0, realTime = -1.0;
+
+#ifdef _WIN32
+  FILETIME creationTime;
+  FILETIME exitTime;
+  FILETIME kernelTime;
+  FILETIME userTime;
+
+  if (GetProcessTimes(GetCurrentProcess(), &creationTime, &exitTime,
+          &kernelTime, &userTime) == 0) {
+    ULARGE_INTEGER userSystemTime;
+    ULARGE_INTEGER kernelSystemTime;
+
+    memcpy(&userSystemTime, &userTime, sizeof(FILETIME));
+    memcpy(&kernelSystemTime, &kernelTime, sizeof(FILETIME));
+
+    usrTime = ((double)(userSystemTime.QuadPart)) / 10000000.0;
+    sysTime = ((double)(kernelSystemTime.QuadPart)) / 10000000.0;
+    realTime = usrTime + sysTime;
+  }
+#else
+  struct tms tms;
+  if (times(&tms) != (clock_t)-1) {
+    usrTime = ((double)(tms.tms_utime)) / sysconf(_SC_CLK_TCK);
+    sysTime = ((double)(tms.tms_stime)) / sysconf(_SC_CLK_TCK);
+    realTime = usrTime + sysTime;
+  }
+#endif
+
+  if (values) {
+    auto typeCode{values->type().GetCategoryAndKind()};
+    // ETIME values argument must have decimal range == 2.
+    RUNTIME_CHECK(terminator,
+        values->rank() == 1 && typeCode &&
+            typeCode->first == Fortran::common::TypeCategory::Real);
+    // Only accept KIND=4 here.
+    int kind{typeCode->second};
+    RUNTIME_CHECK(terminator, kind == 4);
+    auto extent{values->GetDimension(0).Extent()};
+    if (extent >= 1) {
+      ApplyFloatingPointKind<StoreFloatingPointAt, void>(
+          kind, terminator, *values, /* atIndex = */ 0, usrTime);
+    }
+    if (extent >= 2) {
+      ApplyFloatingPointKind<StoreFloatingPointAt, void>(
+          kind, terminator, *values, /* atIndex = */ 1, sysTime);
+    }
+  }
+
+  if (time) {
+    auto typeCode{time->type().GetCategoryAndKind()};
+    // ETIME time argument must have decimal range == 0.
+    RUNTIME_CHECK(terminator,
+        time->rank() == 0 && typeCode &&
+            typeCode->first == Fortran::common::TypeCategory::Real);
+    // Only accept KIND=4 here.
+    int kind{typeCode->second};
+    RUNTIME_CHECK(terminator, kind == 4);
+
+    ApplyFloatingPointKind<StoreFloatingPointAt, void>(
+        kind, terminator, *time, /* atIndex = */ 0, realTime);
+  }
 }
 
 } // extern "C"

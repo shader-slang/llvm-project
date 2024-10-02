@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "InputFiles.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
@@ -22,7 +21,7 @@ using namespace lld::elf;
 namespace {
 class SPARCV9 final : public TargetInfo {
 public:
-  SPARCV9();
+  SPARCV9(Ctx &);
   RelExpr getRelExpr(RelType type, const Symbol &s,
                      const uint8_t *loc) const override;
   void writePlt(uint8_t *buf, const Symbol &sym,
@@ -32,10 +31,9 @@ public:
 };
 } // namespace
 
-SPARCV9::SPARCV9() {
+SPARCV9::SPARCV9(Ctx &ctx) : TargetInfo(ctx) {
   copyRel = R_SPARC_COPY;
   gotRel = R_SPARC_GLOB_DAT;
-  noneRel = R_SPARC_NONE;
   pltRel = R_SPARC_JMP_SLOT;
   relativeRel = R_SPARC_RELATIVE;
   symbolicRel = R_SPARC_64;
@@ -190,12 +188,12 @@ void SPARCV9::writePlt(uint8_t *buf, const Symbol & /*sym*/,
   };
   memcpy(buf, pltData, sizeof(pltData));
 
-  uint64_t off = pltEntryAddr - in.plt->getVA();
+  uint64_t off = pltEntryAddr - ctx.in.plt->getVA();
   relocateNoSym(buf, R_SPARC_22, off);
   relocateNoSym(buf + 4, R_SPARC_WDISP19, -(off + 4 - pltEntrySize));
 }
 
-TargetInfo *elf::getSPARCV9TargetInfo() {
-  static SPARCV9 target;
+TargetInfo *elf::getSPARCV9TargetInfo(Ctx &ctx) {
+  static SPARCV9 target(ctx);
   return &target;
 }

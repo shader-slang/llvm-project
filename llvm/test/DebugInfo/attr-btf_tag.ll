@@ -2,8 +2,8 @@
 ; RUN: llc -filetype=obj -mtriple=x86_64-unknown-linux-gnu -o %t %s
 ; RUN: llvm-dwarfdump -debug-info %t | FileCheck %s
 ; Source:
-;   #define __tag1 __attribute__((btf_tag("tag1")))
-;   #define __tag2 __attribute__((btf_tag("tag2")))
+;   #define __tag1 __attribute__((btf_decl_tag("tag1")))
+;   #define __tag2 __attribute__((btf_decl_tag("tag2")))
 ;
 ;   struct t1 {
 ;     int a __tag1 __tag2;
@@ -22,14 +22,13 @@
 @g1 = dso_local global i32 0, align 4, !dbg !0
 
 ; Function Attrs: noinline nounwind optnone uwtable
-define dso_local i32 @foo(%struct.t1* %arg) #0 !dbg !16 {
+define dso_local i32 @foo(ptr %arg) #0 !dbg !16 {
 entry:
-  %arg.addr = alloca %struct.t1*, align 8
-  store %struct.t1* %arg, %struct.t1** %arg.addr, align 8
-  call void @llvm.dbg.declare(metadata %struct.t1** %arg.addr, metadata !23, metadata !DIExpression()), !dbg !24
-  %0 = load %struct.t1*, %struct.t1** %arg.addr, align 8, !dbg !25
-  %a = getelementptr inbounds %struct.t1, %struct.t1* %0, i32 0, i32 0, !dbg !26
-  %1 = load i32, i32* %a, align 4, !dbg !26
+  %arg.addr = alloca ptr, align 8
+  store ptr %arg, ptr %arg.addr, align 8
+  call void @llvm.dbg.declare(metadata ptr %arg.addr, metadata !23, metadata !DIExpression()), !dbg !24
+  %0 = load ptr, ptr %arg.addr, align 8, !dbg !25
+  %1 = load i32, ptr %0, align 4, !dbg !26
   ret i32 %1, !dbg !27
 }
 
@@ -49,11 +48,11 @@ attributes #1 = { nofree nosync nounwind readnone speculatable willreturn }
 ; CHECK:       DW_TAG_variable
 ; CHECK-NEXT:     DW_AT_name      ("g1")
 ; CHECK:          DW_TAG_LLVM_annotation
-; CHECK-NEXT:       DW_AT_name    ("btf_tag")
+; CHECK-NEXT:       DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:       DW_AT_const_value     ("tag1")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:     DW_TAG_LLVM_annotation
-; CHECK-NEXT:       DW_AT_name    ("btf_tag")
+; CHECK-NEXT:       DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:       DW_AT_const_value     ("tag2")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:     NULL
@@ -64,8 +63,8 @@ attributes #1 = { nofree nosync nounwind readnone speculatable willreturn }
 !5 = !{!0}
 !6 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
 !7 = !{!8, !9}
-!8 = !{!"btf_tag", !"tag1"}
-!9 = !{!"btf_tag", !"tag2"}
+!8 = !{!"btf_decl_tag", !"tag1"}
+!9 = !{!"btf_decl_tag", !"tag2"}
 !10 = !{i32 7, !"Dwarf Version", i32 4}
 !11 = !{i32 2, !"Debug Info Version", i32 3}
 !12 = !{i32 1, !"wchar_size", i32 4}
@@ -78,21 +77,21 @@ attributes #1 = { nofree nosync nounwind readnone speculatable willreturn }
 ; CHECK:        DW_AT_name      ("foo")
 ; CHECK:        DW_TAG_formal_parameter
 ; CHECK:          DW_TAG_LLVM_annotation
-; CHECK-NEXT:       DW_AT_name    ("btf_tag")
+; CHECK-NEXT:       DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:       DW_AT_const_value     ("tag1")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:     DW_TAG_LLVM_annotation
-; CHECK-NEXT:       DW_AT_name    ("btf_tag")
+; CHECK-NEXT:       DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:       DW_AT_const_value     ("tag2")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:     NULL
 ; CHECK-EMPTY:
 ; CHECK-NEXT:   DW_TAG_LLVM_annotation
-; CHECK-NEXT:     DW_AT_name    ("btf_tag")
+; CHECK-NEXT:     DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:     DW_AT_const_value     ("tag1")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:   DW_TAG_LLVM_annotation
-; CHECK-NEXT:     DW_AT_name    ("btf_tag")
+; CHECK-NEXT:     DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:     DW_AT_const_value     ("tag2")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:   NULL
@@ -109,21 +108,21 @@ attributes #1 = { nofree nosync nounwind readnone speculatable willreturn }
 ; CHECK:        DW_TAG_member
 ; CHECK-NEXT:     DW_AT_name      ("a")
 ; CHECK:          DW_TAG_LLVM_annotation
-; CHECK-NEXT:       DW_AT_name    ("btf_tag")
+; CHECK-NEXT:       DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:       DW_AT_const_value     ("tag1")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:     DW_TAG_LLVM_annotation
-; CHECK-NEXT:       DW_AT_name    ("btf_tag")
+; CHECK-NEXT:       DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:       DW_AT_const_value     ("tag2")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:     NULL
 ; CHECK-EMPTY:
 ; CHECK-NEXT:   DW_TAG_LLVM_annotation
-; CHECK-NEXT:     DW_AT_name    ("btf_tag")
+; CHECK-NEXT:     DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:     DW_AT_const_value     ("tag1")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:   DW_TAG_LLVM_annotation
-; CHECK-NEXT:     DW_AT_name    ("btf_tag")
+; CHECK-NEXT:     DW_AT_name    ("btf_decl_tag")
 ; CHECK-NEXT:     DW_AT_const_value     ("tag2")
 ; CHECK-EMPTY:
 ; CHECK-NEXT:   NULL

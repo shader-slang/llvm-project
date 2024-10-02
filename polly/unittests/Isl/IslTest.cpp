@@ -244,7 +244,7 @@ TEST(Isl, IslValToAPInt) {
     auto APLargePow2 = APIntFromVal(IslLargePow2);
     EXPECT_TRUE(APLargePow2.isPowerOf2());
     EXPECT_EQ(502u, APLargePow2.getBitWidth());
-    EXPECT_EQ(502u, APLargePow2.getMinSignedBits());
+    EXPECT_EQ(502u, APLargePow2.getSignificantBits());
   }
 
   {
@@ -252,7 +252,7 @@ TEST(Isl, IslValToAPInt) {
     auto IslLargeNPow2 = IslExp.pow2().neg();
     auto APLargeNPow2 = APIntFromVal(IslLargeNPow2);
     EXPECT_EQ(501u, APLargeNPow2.getBitWidth());
-    EXPECT_EQ(501u, APLargeNPow2.getMinSignedBits());
+    EXPECT_EQ(501u, APLargeNPow2.getSignificantBits());
     EXPECT_EQ(500, (-APLargeNPow2).exactLogBase2());
   }
 
@@ -262,7 +262,7 @@ TEST(Isl, IslValToAPInt) {
     auto APLargePow2 = APIntFromVal(IslLargePow2);
     EXPECT_TRUE(APLargePow2.isPowerOf2());
     EXPECT_EQ(514u, APLargePow2.getBitWidth());
-    EXPECT_EQ(514u, APLargePow2.getMinSignedBits());
+    EXPECT_EQ(514u, APLargePow2.getSignificantBits());
   }
 
   {
@@ -270,7 +270,7 @@ TEST(Isl, IslValToAPInt) {
     auto IslLargeNPow2 = IslExp.pow2().neg();
     auto APLargeNPow2 = APIntFromVal(IslLargeNPow2);
     EXPECT_EQ(513u, APLargeNPow2.getBitWidth());
-    EXPECT_EQ(513u, APLargeNPow2.getMinSignedBits());
+    EXPECT_EQ(513u, APLargeNPow2.getSignificantBits());
     EXPECT_EQ(512, (-APLargeNPow2).exactLogBase2());
   }
 
@@ -644,16 +644,16 @@ TEST(ISLTools, getNumScatterDims) {
                                                         &isl_ctx_free);
 
   // Basic usage
-  EXPECT_EQ(0, getNumScatterDims(UMAP("{ [] -> [] }")));
-  EXPECT_EQ(1, getNumScatterDims(UMAP("{ [] -> [i] }")));
-  EXPECT_EQ(2, getNumScatterDims(UMAP("{ [] -> [i,j] }")));
-  EXPECT_EQ(3, getNumScatterDims(UMAP("{ [] -> [i,j,k] }")));
+  EXPECT_EQ(0u, getNumScatterDims(UMAP("{ [] -> [] }")));
+  EXPECT_EQ(1u, getNumScatterDims(UMAP("{ [] -> [i] }")));
+  EXPECT_EQ(2u, getNumScatterDims(UMAP("{ [] -> [i,j] }")));
+  EXPECT_EQ(3u, getNumScatterDims(UMAP("{ [] -> [i,j,k] }")));
 
   // Different scatter spaces
-  EXPECT_EQ(0, getNumScatterDims(UMAP("{ A[] -> []; [] -> []}")));
-  EXPECT_EQ(1, getNumScatterDims(UMAP("{ A[] -> []; [] -> [i] }")));
-  EXPECT_EQ(2, getNumScatterDims(UMAP("{ A[] -> [i]; [] -> [i,j] }")));
-  EXPECT_EQ(3, getNumScatterDims(UMAP("{ A[] -> [i]; [] -> [i,j,k] }")));
+  EXPECT_EQ(0u, getNumScatterDims(UMAP("{ A[] -> []; [] -> []}")));
+  EXPECT_EQ(1u, getNumScatterDims(UMAP("{ A[] -> []; [] -> [i] }")));
+  EXPECT_EQ(2u, getNumScatterDims(UMAP("{ A[] -> [i]; [] -> [i,j] }")));
+  EXPECT_EQ(3u, getNumScatterDims(UMAP("{ A[] -> [i]; [] -> [i,j,k] }")));
 }
 
 TEST(ISLTools, getScatterSpace) {

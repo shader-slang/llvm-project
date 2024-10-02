@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_BASIC_SOURCELOCATION_H
 #define LLVM_CLANG_BASIC_SOURCELOCATION_H
 
+#include "clang/Basic/FileEntry.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/StringRef.h"
 #include <cassert>
@@ -23,10 +24,8 @@
 
 namespace llvm {
 
-template <typename T> struct DenseMapInfo;
-
 class FoldingSetNodeID;
-template <typename T> struct FoldingSetTrait;
+template <typename T, typename Enable> struct FoldingSetTrait;
 
 } // namespace llvm
 
@@ -60,6 +59,7 @@ private:
   friend class ASTWriter;
   friend class ASTReader;
   friend class SourceManager;
+  friend class SourceManagerTestHelper;
 
   static FileID get(int V) {
     FileID F;
@@ -89,7 +89,8 @@ class SourceLocation {
   friend class ASTReader;
   friend class ASTWriter;
   friend class SourceManager;
-  friend struct llvm::FoldingSetTrait<SourceLocation>;
+  friend struct llvm::FoldingSetTrait<SourceLocation, void>;
+  friend class SourceLocationEncoding;
 
 public:
   using UIntTy = uint32_t;
@@ -358,8 +359,6 @@ public:
   }
 };
 
-class FileEntry;
-
 /// A SourceLocation and its associated SourceManager.
 ///
 /// This is useful for argument passing to functions that expect both objects.
@@ -400,6 +399,12 @@ public:
   unsigned getExpansionLineNumber(bool *Invalid = nullptr) const;
   unsigned getExpansionColumnNumber(bool *Invalid = nullptr) const;
 
+  /// Decompose the underlying \c SourceLocation into a raw (FileID + Offset)
+  /// pair, after walking through all expansion records.
+  ///
+  /// \see SourceManager::getDecomposedExpansionLoc
+  std::pair<FileID, unsigned> getDecomposedExpansionLoc() const;
+
   unsigned getSpellingLineNumber(bool *Invalid = nullptr) const;
   unsigned getSpellingColumnNumber(bool *Invalid = nullptr) const;
 
@@ -409,6 +414,7 @@ public:
   unsigned getColumnNumber(bool *Invalid = nullptr) const;
 
   const FileEntry *getFileEntry() const;
+  OptionalFileEntryRef getFileEntryRef() const;
 
   /// Return a StringRef to the source buffer data for the
   /// specified FileID.
@@ -467,7 +473,7 @@ namespace llvm {
   /// Define DenseMapInfo so that FileID's can be used as keys in DenseMap and
   /// DenseSets.
   template <>
-  struct DenseMapInfo<clang::FileID> {
+  struct DenseMapInfo<clang::FileID, void> {
     static clang::FileID getEmptyKey() {
       return {};
     }
@@ -488,7 +494,7 @@ namespace llvm {
   /// Define DenseMapInfo so that SourceLocation's can be used as keys in
   /// DenseMap and DenseSet. This trait class is eqivalent to
   /// DenseMapInfo<unsigned> which uses SourceLocation::ID is used as a key.
-  template <> struct DenseMapInfo<clang::SourceLocation> {
+  template <> struct DenseMapInfo<clang::SourceLocation, void> {
     static clang::SourceLocation getEmptyKey() {
       constexpr clang::SourceLocation::UIntTy Zero = 0;
       return clang::SourceLocation::getFromRawEncoding(~Zero);
@@ -509,7 +515,7 @@ namespace llvm {
   };
 
   // Allow calling FoldingSetNodeID::Add with SourceLocation object as parameter
-  template <> struct FoldingSetTrait<clang::SourceLocation> {
+  template <> struct FoldingSetTrait<clang::SourceLocation, void> {
     static void Profile(const clang::SourceLocation &X, FoldingSetNodeID &ID);
   };
 

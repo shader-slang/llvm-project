@@ -8,9 +8,18 @@
 
 #include "src/threads/cnd_init.h"
 #include "src/__support/common.h"
+#include "src/__support/macros/config.h"
+#include "src/__support/threads/CndVar.h"
 
-namespace __llvm_libc {
+#include <threads.h> // cnd_t, thrd_error, thrd_success
 
-LLVM_LIBC_FUNCTION(int, cnd_init, (cnd_t * cond)) { return thrd_success; }
+namespace LIBC_NAMESPACE_DECL {
 
-} // namespace __llvm_libc
+static_assert(sizeof(CndVar) == sizeof(cnd_t));
+
+LLVM_LIBC_FUNCTION(int, cnd_init, (cnd_t * cond)) {
+  CndVar *cndvar = reinterpret_cast<CndVar *>(cond);
+  return CndVar::init(cndvar) ? thrd_error : thrd_success;
+}
+
+} // namespace LIBC_NAMESPACE_DECL

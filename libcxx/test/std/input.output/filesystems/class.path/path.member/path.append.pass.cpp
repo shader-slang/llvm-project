@@ -6,10 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-// UNSUPPORTED: c++03
+// UNSUPPORTED: c++03, c++11, c++14
+// UNSUPPORTED: availability-filesystem-missing
 
 // These tests require locale for non-char paths
-// UNSUPPORTED: libcpp-has-no-localization
+// UNSUPPORTED: no-localization
 
 // <filesystem>
 
@@ -23,8 +24,7 @@
 // template <class InputIterator>
 //      path& append(InputIterator first, InputIterator last);
 
-
-#include "filesystem_include.h"
+#include <filesystem>
 #include <type_traits>
 #include <string_view>
 #include <cassert>
@@ -33,11 +33,12 @@
 // to an intermediate path object, causing allocations in cases where no
 // allocations are done on other platforms.
 
-#include "test_macros.h"
-#include "test_iterators.h"
+#include "../path_helper.h"
 #include "count_new.h"
-#include "filesystem_test_helper.h"
-
+#include "make_string.h"
+#include "test_iterators.h"
+#include "test_macros.h"
+namespace fs = std::filesystem;
 
 struct AppendOperatorTestcase {
   MultiStringType lhs;
@@ -359,7 +360,7 @@ void test_sfinae()
     static_assert(has_append<It>(), "");
   }
   {
-    using It = output_iterator<const char*>;
+    using It = cpp17_output_iterator<const char*>;
     static_assert(!has_append<It>(), "");
 
   }
@@ -386,14 +387,18 @@ int main(int, char**)
       assert(&Res == &LHS);
     }
     doAppendSourceTest<char>    (TC);
+#ifndef TEST_HAS_NO_WIDE_CHARACTERS
     doAppendSourceTest<wchar_t> (TC);
+#endif
     doAppendSourceTest<char16_t>(TC);
     doAppendSourceTest<char32_t>(TC);
   }
   for (auto const & TC : LongLHSCases) {
     (void)TC;
     LIBCPP_ONLY(doAppendSourceAllocTest<char>(TC));
+#ifndef TEST_HAS_NO_WIDE_CHARACTERS
     LIBCPP_ONLY(doAppendSourceAllocTest<wchar_t>(TC));
+#endif
   }
   test_sfinae();
 

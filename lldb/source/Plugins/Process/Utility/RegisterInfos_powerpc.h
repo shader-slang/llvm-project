@@ -24,7 +24,7 @@
                                           dwarf_##reg##_powerpc, lldb_kind,    \
                                           LLDB_INVALID_REGNUM,                 \
                                           gpr_##reg##_powerpc },               \
-                                          NULL, NULL, NULL, 0                  \
+                                          NULL, NULL, NULL,                    \
   }
 #define DEFINE_FPR(reg, lldb_kind)                                             \
   {                                                                            \
@@ -32,7 +32,7 @@
                               {dwarf_##reg##_powerpc, dwarf_##reg##_powerpc,   \
                                lldb_kind, LLDB_INVALID_REGNUM,                 \
                                fpr_##reg##_powerpc },                          \
-                               NULL, NULL, NULL, 0                             \
+                               NULL, NULL, NULL,                               \
   }
 #define DEFINE_VMX(reg, lldb_kind)                                             \
   {                                                                            \
@@ -40,7 +40,7 @@
                                {dwarf_##reg##_powerpc, dwarf_##reg##_powerpc,  \
                                 lldb_kind, LLDB_INVALID_REGNUM,                \
                                 vmx_##reg##_powerpc },                         \
-                                NULL, NULL, NULL, 0                            \
+                                NULL, NULL, NULL,                              \
   }
 
 // General purpose registers.            EH_Frame,                  DWARF,
@@ -126,7 +126,7 @@
        NULL,                                                                   \
        NULL,                                                                   \
        NULL,                                                                   \
-       0},                                                                     \
+        },                                                                     \
       DEFINE_VMX(v0, LLDB_INVALID_REGNUM),                                     \
       DEFINE_VMX(v1, LLDB_INVALID_REGNUM),                                     \
       DEFINE_VMX(v2, LLDB_INVALID_REGNUM),                                     \
@@ -170,7 +170,7 @@
        NULL,                                                                   \
        NULL,                                                                   \
        NULL,                                                                   \
-       0},                                                                     \
+        },                                                                     \
       {"vscr",                                                                 \
        NULL,                                                                   \
        4,                                                                      \
@@ -182,7 +182,7 @@
        NULL,                                                                   \
        NULL,                                                                   \
        NULL,                                                                   \
-       0},
+       },
 
 static RegisterInfo g_register_infos_powerpc64[] = {
 #define GPR GPR64

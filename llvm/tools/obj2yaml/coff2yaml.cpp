@@ -123,7 +123,7 @@ initializeFileAndStringTable(const llvm::object::COFFObjectFile &Obj,
 
     cantFail(Obj.getSectionContents(COFFSection, sectionData));
 
-    BinaryStreamReader Reader(sectionData, support::little);
+    BinaryStreamReader Reader(sectionData, llvm::endianness::little);
     uint32_t Magic;
 
     Err(Reader.readInteger(Magic));
@@ -204,8 +204,7 @@ void COFFDumper::dumpSections(unsigned NumSections) {
        std::string Buf;
        raw_string_ostream OS(Buf);
        logAllUnhandledErrors(SymbolNameOrErr.takeError(), OS);
-       OS.flush();
-       report_fatal_error(Buf);
+       report_fatal_error(Twine(OS.str()));
       }
       if (SymbolUnique.lookup(*SymbolNameOrErr))
         Rel.SymbolName = *SymbolNameOrErr;

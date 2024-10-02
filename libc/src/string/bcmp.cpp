@@ -8,20 +8,14 @@
 
 #include "src/string/bcmp.h"
 #include "src/__support/common.h"
+#include "src/__support/macros/config.h"
+#include "src/string/memory_utils/inline_bcmp.h"
 
-namespace __llvm_libc {
+namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, bcmp,
                    (const void *lhs, const void *rhs, size_t count)) {
-  const unsigned char *_lhs = reinterpret_cast<const unsigned char *>(lhs);
-  const unsigned char *_rhs = reinterpret_cast<const unsigned char *>(rhs);
-  for (size_t i = 0; i < count; ++i) {
-    if (_lhs[i] != _rhs[i]) {
-      return 1;
-    }
-  }
-  // count is 0 or _lhs and _rhs are the same.
-  return 0;
+  return inline_bcmp(lhs, rhs, count);
 }
 
-} // namespace __llvm_libc
+} // namespace LIBC_NAMESPACE_DECL

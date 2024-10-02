@@ -21,7 +21,8 @@ int f() {
   asm("mov %eax, %rdx"_foo); // expected-error {{user-defined suffix cannot be used here}}
 }
 
-static_assert(true, "foo"_bar); // expected-error {{user-defined suffix cannot be used here}}
+static_assert(true, "foo"_bar); // expected-error {{no matching literal operator for call to 'operator""_bar'}}
+// expected-warning@-1 {{'static_assert' with a user-generated message is a C++26 extension}}
 
 int cake() __attribute__((availability(macosx, unavailable, message = "is a lie"_x))); // expected-error {{user-defined suffix cannot be used here}}
 
@@ -131,6 +132,7 @@ int operator""_\u212e""_\U0000212e""_℮""(const char*, size_t);
 int operator""_\U0000212e""_℮""_\u212e""(const char*, size_t);
 
 int operator""_\u{212f}(char);
+int operator""_\N{SCRIPT SMALL E}(char);
 
 int mix_ucn_utf8 = ""_℮""_\u212e""_\U0000212e"";
 

@@ -1117,8 +1117,7 @@ body:             |
     ; SOFT-NOT: G_FCMP
     ; For soft float we just need to return a '-1' constant, but the truncation
     ; to 1 bit is converted by the combiner to the following masking sequence.
-    ; SOFT: [[R:%[0-9]+]]:_(s32) = G_CONSTANT i32 1
-    ; SOFT: [[REXT:%[0-9]+]]:_(s32) = COPY [[R]](s32)
+    ; SOFT: [[REXT:%[0-9]+]]:_(s32) = G_CONSTANT i32 1
     ; SOFT-NOT: G_FCMP
     ; CHECK: $r0 = COPY [[REXT]]
 ...
@@ -1152,8 +1151,7 @@ body:             |
     ; SOFT-NOT: G_FCMP
     ; For soft float we just need to return a '0' constant, but the truncation
     ; to 1 bit is converted by the combiner to the following masking sequence.
-    ; SOFT: [[R:%[0-9]+]]:_(s32) = G_CONSTANT i32 0
-    ; SOFT: [[REXT:%[0-9]+]]:_(s32) = COPY [[R]](s32)
+    ; SOFT: [[REXT:%[0-9]+]]:_(s32) = G_CONSTANT i32 0
     ; SOFT-NOT: G_FCMP
     ; CHECK: $r0 = COPY [[REXT]]
 ...
@@ -1811,10 +1809,10 @@ body:             |
     %1(s32) = COPY $r1
     %2(s32) = COPY $r2
     %3(s32) = COPY $r3
-    ; CHECK-DAG: [[X0:%[0-9]+]]:_(s32) = COPY $r0
-    ; CHECK-DAG: [[X1:%[0-9]+]]:_(s32) = COPY $r1
-    ; CHECK-DAG: [[Y0:%[0-9]+]]:_(s32) = COPY $r2
-    ; CHECK-DAG: [[Y1:%[0-9]+]]:_(s32) = COPY $r3
+    ; HARD-DAG: [[X0:%[0-9]+]]:_(s32) = COPY $r0
+    ; HARD-DAG: [[X1:%[0-9]+]]:_(s32) = COPY $r1
+    ; HARD-DAG: [[Y0:%[0-9]+]]:_(s32) = COPY $r2
+    ; HARD-DAG: [[Y1:%[0-9]+]]:_(s32) = COPY $r3
     %4(s64) = G_MERGE_VALUES %0(s32), %1
     %5(s64) = G_MERGE_VALUES %2(s32), %3
     ; HARD-DAG: [[X:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[X0]](s32), [[X1]](s32)
@@ -1825,8 +1823,7 @@ body:             |
     ; SOFT-NOT: G_FCMP
     ; The result needs to be truncated, and the combiner turns the truncation
     ; into the following masking sequence.
-    ; SOFT: [[MASK:%[0-9]+]]:_(s32) = G_CONSTANT i32 1
-    ; SOFT: [[REXT:%[0-9]+]]:_(s32) = COPY [[MASK]]
+    ; SOFT: [[REXT:%[0-9]+]]:_(s32) = G_CONSTANT i32 1
     ; SOFT-NOT: G_FCMP
     %7(s32) = G_ZEXT %6(s1)
     $r0 = COPY %7(s32)
@@ -1858,10 +1855,10 @@ body:             |
     %1(s32) = COPY $r1
     %2(s32) = COPY $r2
     %3(s32) = COPY $r3
-    ; CHECK-DAG: [[X0:%[0-9]+]]:_(s32) = COPY $r0
-    ; CHECK-DAG: [[X1:%[0-9]+]]:_(s32) = COPY $r1
-    ; CHECK-DAG: [[Y0:%[0-9]+]]:_(s32) = COPY $r2
-    ; CHECK-DAG: [[Y1:%[0-9]+]]:_(s32) = COPY $r3
+    ; HARD-DAG: [[X0:%[0-9]+]]:_(s32) = COPY $r0
+    ; HARD-DAG: [[X1:%[0-9]+]]:_(s32) = COPY $r1
+    ; HARD-DAG: [[Y0:%[0-9]+]]:_(s32) = COPY $r2
+    ; HARD-DAG: [[Y1:%[0-9]+]]:_(s32) = COPY $r3
     %4(s64) = G_MERGE_VALUES %0(s32), %1
     %5(s64) = G_MERGE_VALUES %2(s32), %3
     ; HARD-DAG: [[X:%[0-9]+]]:_(s64) = G_MERGE_VALUES [[X0]](s32), [[X1]](s32)
@@ -1870,11 +1867,9 @@ body:             |
     ; HARD: [[R:%[0-9]+]]:_(s1) = G_FCMP floatpred(false), [[X]](s64), [[Y]]
     ; HARD: [[REXT:%[0-9]+]]:_(s32) = G_ZEXT [[R]](s1)
     ; SOFT-NOT: G_FCMP
-    ; SOFT: [[R:%[0-9]+]]:_(s32) = G_CONSTANT i32 0
+    ; SOFT: [[REXT:%[0-9]+]]:_(s32) = G_CONSTANT i32 0
     ; The result needs to be truncated, and the combiner turns the truncation
     ; into the following masking sequence.
-    ; SOFT: [[REXT:%[0-9]+]]:_(s32) = COPY [[R]]
-    ; SOFT-NOT: G_FCMP
     ; SOFT-NOT: G_FCMP
     %7(s32) = G_ZEXT %6(s1)
     $r0 = COPY %7(s32)

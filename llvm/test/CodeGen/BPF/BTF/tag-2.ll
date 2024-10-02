@@ -2,8 +2,8 @@
 ; RUN: llc -march=bpfeb -filetype=asm -o - %s | FileCheck -check-prefixes=CHECK %s
 
 ; Source code:
-;   #define __tag1 __attribute__((btf_tag("tag1")))
-;   #define __tag2 __attribute__((btf_tag("tag2")))
+;   #define __tag1 __attribute__((btf_decl_tag("tag1")))
+;   #define __tag2 __attribute__((btf_decl_tag("tag2")))
 ;   extern int bar(int a1, int a2) __tag1 __tag2;
 ;   int __tag1 foo(int arg1, int *arg2 __tag1) {
 ; ;   return arg1 + *arg2 + bar(arg1, arg1 + 1);
@@ -12,11 +12,11 @@
 ;   clang -target bpf -O2 -g -S -emit-llvm t.c
 
 ; Function Attrs: nounwind
-define dso_local i32 @foo(i32 %arg1, i32* nocapture readonly %arg2) local_unnamed_addr #0 !dbg !8 {
+define dso_local i32 @foo(i32 %arg1, ptr nocapture readonly %arg2) local_unnamed_addr #0 !dbg !8 {
 entry:
   call void @llvm.dbg.value(metadata i32 %arg1, metadata !14, metadata !DIExpression()), !dbg !18
-  call void @llvm.dbg.value(metadata i32* %arg2, metadata !15, metadata !DIExpression()), !dbg !18
-  %0 = load i32, i32* %arg2, align 4, !dbg !19, !tbaa !20
+  call void @llvm.dbg.value(metadata ptr %arg2, metadata !15, metadata !DIExpression()), !dbg !18
+  %0 = load i32, ptr %arg2, align 4, !dbg !19, !tbaa !20
   %add = add nsw i32 %0, %arg1, !dbg !24
   %add1 = add nsw i32 %arg1, 1, !dbg !25
   %call = tail call i32 @bar(i32 %arg1, i32 %add1) #3, !dbg !26
@@ -55,7 +55,7 @@ attributes #3 = { nounwind }
 !14 = !DILocalVariable(name: "arg1", arg: 1, scope: !8, file: !1, line: 4, type: !11)
 !15 = !DILocalVariable(name: "arg2", arg: 2, scope: !8, file: !1, line: 4, type: !12, annotations: !16)
 !16 = !{!17}
-!17 = !{!"btf_tag", !"tag1"}
+!17 = !{!"btf_decl_tag", !"tag1"}
 !18 = !DILocation(line: 0, scope: !8)
 !19 = !DILocation(line: 5, column: 17, scope: !8)
 !20 = !{!21, !21, i64 0}
@@ -71,7 +71,7 @@ attributes #3 = { nounwind }
 !30 = !DISubroutineType(types: !31)
 !31 = !{!11, !11, !11}
 !32 = !{!17, !33}
-!33 = !{!"btf_tag", !"tag2"}
+!33 = !{!"btf_decl_tag", !"tag2"}
 
 ; CHECK:             .long   1                               # BTF_KIND_INT(id = 1)
 ; CHECK-NEXT:        .long   16777216                        # 0x1000000
@@ -90,11 +90,11 @@ attributes #3 = { nounwind }
 ; CHECK-NEXT:        .long   15                              # BTF_KIND_FUNC(id = 4)
 ; CHECK-NEXT:        .long   201326593                       # 0xc000001
 ; CHECK-NEXT:        .long   3
-; CHECK-NEXT:        .long   19                              # BTF_KIND_TAG(id = 5)
+; CHECK-NEXT:        .long   19                              # BTF_KIND_DECL_TAG(id = 5)
 ; CHECK-NEXT:        .long   285212672                       # 0x11000000
 ; CHECK-NEXT:        .long   4
 ; CHECK-NEXT:        .long   1
-; CHECK-NEXT:        .long   19                              # BTF_KIND_TAG(id = 6)
+; CHECK-NEXT:        .long   19                              # BTF_KIND_DECL_TAG(id = 6)
 ; CHECK-NEXT:        .long   285212672                       # 0x11000000
 ; CHECK-NEXT:        .long   4
 ; CHECK-NEXT:        .long   4294967295
@@ -108,11 +108,11 @@ attributes #3 = { nounwind }
 ; CHECK-NEXT:        .long   72                              # BTF_KIND_FUNC(id = 8)
 ; CHECK-NEXT:        .long   201326594                       # 0xc000002
 ; CHECK-NEXT:        .long   7
-; CHECK-NEXT:        .long   19                              # BTF_KIND_TAG(id = 9)
+; CHECK-NEXT:        .long   19                              # BTF_KIND_DECL_TAG(id = 9)
 ; CHECK-NEXT:        .long   285212672                       # 0x11000000
 ; CHECK-NEXT:        .long   8
 ; CHECK-NEXT:        .long   4294967295
-; CHECK-NEXT:        .long   76                              # BTF_KIND_TAG(id = 10)
+; CHECK-NEXT:        .long   76                              # BTF_KIND_DECL_TAG(id = 10)
 ; CHECK-NEXT:        .long   285212672                       # 0x11000000
 ; CHECK-NEXT:        .long   8
 ; CHECK-NEXT:        .long   4294967295

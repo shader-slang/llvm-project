@@ -6,28 +6,35 @@ from lldbsuite.test import lldbutil
 import binascii
 import os
 
-class TestGdbSaveCore(gdbremote_testcase.GdbRemoteTestCaseBase):
-    mydir = TestBase.compute_mydir(__file__)
 
+class TestGdbSaveCore(gdbremote_testcase.GdbRemoteTestCaseBase):
     def coredump_test(self, core_path=None, expect_path=None):
         self.build()
         self.set_inferior_startup_attach()
         procs = self.prep_debug_monitor_and_inferior()
         self.add_qSupported_packets()
         ret = self.expect_gdbremote_sequence()
-        self.assertIn("qSaveCore+", ret["qSupported_response"])
+        if "qSaveCore+" not in ret["qSupported_response"]:
+            self.skipTest("qSaveCore not supported by lldb-server")
         self.reset_test_sequence()
 
         packet = "$qSaveCore"
         if core_path is not None:
             packet += ";path-hint:{}".format(
-                binascii.b2a_hex(core_path.encode()).decode())
+                binascii.b2a_hex(core_path.encode()).decode()
+            )
 
-        self.test_sequence.add_log_lines([
-            "read packet: {}#00".format(packet),
-            {"direction": "send", "regex": "[$]core-path:([0-9a-f]+)#.*",
-             "capture": {1: "path"}},
-        ], True)
+        self.test_sequence.add_log_lines(
+            [
+                "read packet: {}#00".format(packet),
+                {
+                    "direction": "send",
+                    "regex": "[$]core-path:([0-9a-f]+)#.*",
+                    "capture": {1: "path"},
+                },
+            ],
+            True,
+        )
         ret = self.expect_gdbremote_sequence()
         out_path = binascii.a2b_hex(ret["path"].encode()).decode()
         if expect_path is not None:

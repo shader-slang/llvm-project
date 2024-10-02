@@ -16,7 +16,7 @@ namespace orc {
 void lookupAndRecordAddrs(
     unique_function<void(Error)> OnRecorded, ExecutionSession &ES, LookupKind K,
     const JITDylibSearchOrder &SearchOrder,
-    std::vector<std::pair<SymbolStringPtr, ExecutorAddress *>> Pairs,
+    std::vector<std::pair<SymbolStringPtr, ExecutorAddr *>> Pairs,
     SymbolLookupFlags LookupFlags) {
 
   SymbolLookupSet Symbols;
@@ -24,15 +24,15 @@ void lookupAndRecordAddrs(
     Symbols.add(KV.first, LookupFlags);
 
   ES.lookup(
-      K, SearchOrder, Symbols, SymbolState::Ready,
+      K, SearchOrder, std::move(Symbols), SymbolState::Ready,
       [Pairs = std::move(Pairs),
        OnRec = std::move(OnRecorded)](Expected<SymbolMap> Result) mutable {
         if (!Result)
           return OnRec(Result.takeError());
         for (auto &KV : Pairs) {
           auto I = Result->find(KV.first);
-          KV.second->setValue((I != Result->end()) ? I->second.getAddress()
-                                                   : 0);
+          *KV.second =
+              I != Result->end() ? I->second.getAddress() : orc::ExecutorAddr();
         }
         OnRec(Error::success());
       },
@@ -41,19 +41,19 @@ void lookupAndRecordAddrs(
 
 Error lookupAndRecordAddrs(
     ExecutionSession &ES, LookupKind K, const JITDylibSearchOrder &SearchOrder,
-    std::vector<std::pair<SymbolStringPtr, ExecutorAddress *>> Pairs,
+    std::vector<std::pair<SymbolStringPtr, ExecutorAddr *>> Pairs,
     SymbolLookupFlags LookupFlags) {
 
   std::promise<MSVCPError> ResultP;
   auto ResultF = ResultP.get_future();
   lookupAndRecordAddrs([&](Error Err) { ResultP.set_value(std::move(Err)); },
-                       ES, K, SearchOrder, Pairs, LookupFlags);
+                       ES, K, SearchOrder, std::move(Pairs), LookupFlags);
   return ResultF.get();
 }
 
 Error lookupAndRecordAddrs(
     ExecutorProcessControl &EPC, tpctypes::DylibHandle H,
-    std::vector<std::pair<SymbolStringPtr, ExecutorAddress *>> Pairs,
+    std::vector<std::pair<SymbolStringPtr, ExecutorAddr *>> Pairs,
     SymbolLookupFlags LookupFlags) {
 
   SymbolLookupSet Symbols;
@@ -73,7 +73,7 @@ Error lookupAndRecordAddrs(
                                    inconvertibleErrorCode());
 
   for (unsigned I = 0; I != Pairs.size(); ++I)
-    Pairs[I].second->setValue(Result->front()[I]);
+    *Pairs[I].second = Result->front()[I].getAddress();
 
   return Error::success();
 }
